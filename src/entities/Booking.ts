@@ -54,6 +54,13 @@ export class Booking {
 
   overtimeReminderSent: boolean
 
+  previousBooking?: {
+    bookingDate: string
+    startTime: string
+    endTime: string
+    duration: number
+  }
+
   createdAt: Date
 
   updatedAt: Date

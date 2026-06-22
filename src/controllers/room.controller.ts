@@ -132,6 +132,7 @@ export async function updateRoom(req: AuthRequest, res: Response, next: NextFunc
     const room = dataStore.rooms[roomIndex]
     Object.assign(room, updateData)
     room.updatedAt = new Date()
+    dataStore.markUpdated()
 
     res.json({
       code: 200,
@@ -154,6 +155,7 @@ export async function deleteRoom(req: AuthRequest, res: Response, next: NextFunc
 
     room.isActive = false
     room.updatedAt = new Date()
+    dataStore.markUpdated()
 
     res.json({
       code: 200,

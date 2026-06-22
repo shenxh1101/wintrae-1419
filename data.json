@@ -1,0 +1,115 @@
+{
+  "users": [
+    {
+      "id": "3355c0ee-8bd6-4930-ab83-69f6ec8c48ad",
+      "phone": "13800138000",
+      "password": "$2a$10$OkonTsSGKQr9tOcxzIIBNuJQZ1kR5.9kdsRk3RdKPvWFF3/P/rAVO",
+      "nickname": "超级管理员",
+      "role": "admin",
+      "isActive": true,
+      "createdAt": "2026-06-22T00:02:12.089Z",
+      "updatedAt": "2026-06-22T00:02:12.089Z"
+    },
+    {
+      "id": "b7c3b11c-0f79-42ec-98a0-d720e2a97a36",
+      "phone": "13900139000",
+      "password": "$2a$10$c3cyyMAN3.7mK78g89V7IOEG.tB2OQIbbv4bMv7msTPaLSCne4BKG",
+      "nickname": "测试用户",
+      "role": "user",
+      "isActive": true,
+      "createdAt": "2026-06-22T00:02:12.163Z",
+      "updatedAt": "2026-06-22T00:02:12.163Z"
+    }
+  ],
+  "rooms": [
+    {
+      "id": "27431109-9233-4b82-b60d-67d0407b7447",
+      "name": "A1 豪华钢琴房",
+      "capacity": 2,
+      "instruments": [
+        "piano"
+      ],
+      "openingTime": "08:00",
+      "closingTime": "22:00",
+      "pricePerHour": 80,
+      "description": "配备施坦威三角钢琴，专业隔音设计",
+      "isActive": true,
+      "reviewCount": 0,
+      "createdAt": "2026-06-22T00:02:12.163Z",
+      "updatedAt": "2026-06-22T00:02:12.163Z"
+    },
+    {
+      "id": "2e6ad410-122a-4a58-ba80-434154e890ae",
+      "name": "A2 标准钢琴房",
+      "capacity": 2,
+      "instruments": [
+        "piano"
+      ],
+      "openingTime": "08:00",
+      "closingTime": "22:00",
+      "pricePerHour": 50,
+      "description": "雅马哈立式钢琴，适合练习",
+      "isActive": true,
+      "reviewCount": 0,
+      "createdAt": "2026-06-22T00:02:12.163Z",
+      "updatedAt": "2026-06-22T00:02:12.163Z"
+    },
+    {
+      "id": "0f8643f8-2f2e-4636-be7c-13ae0c431231",
+      "name": "B1 综合琴房",
+      "capacity": 4,
+      "instruments": [
+        "piano",
+        "violin",
+        "cello"
+      ],
+      "openingTime": "09:00",
+      "closingTime": "21:00",
+      "pricePerHour": 60,
+      "description": "小型合奏室，多种乐器可用",
+      "isActive": true,
+      "reviewCount": 0,
+      "createdAt": "2026-06-22T00:02:12.163Z",
+      "updatedAt": "2026-06-22T00:02:12.163Z"
+    },
+    {
+      "id": "be4178bc-78d2-4a8a-b4d5-a93d9f823c61",
+      "name": "C1 打击乐室",
+      "capacity": 3,
+      "instruments": [
+        "drum",
+        "guitar"
+      ],
+      "openingTime": "10:00",
+      "closingTime": "22:00",
+      "pricePerHour": 70,
+      "description": "架子鼓与吉他练习室",
+      "isActive": true,
+      "reviewCount": 0,
+      "createdAt": "2026-06-22T00:02:12.163Z",
+      "updatedAt": "2026-06-22T00:02:12.163Z"
+    },
+    {
+      "id": "2e72348b-f5a3-47de-bbaa-22126b5a10cf",
+      "name": "D1 管弦乐室",
+      "capacity": 6,
+      "instruments": [
+        "flute",
+        "saxophone",
+        "trumpet",
+        "violin"
+      ],
+      "openingTime": "09:00",
+      "closingTime": "20:00",
+      "pricePerHour": 100,
+      "description": "大型合奏室，适合管弦乐排练",
+      "isActive": true,
+      "reviewCount": 0,
+      "createdAt": "2026-06-22T00:02:12.163Z",
+      "updatedAt": "2026-06-22T00:02:12.163Z"
+    }
+  ],
+  "bookings": [],
+  "unavailableDates": [],
+  "closures": []
+}

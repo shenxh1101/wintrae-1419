@@ -154,6 +154,7 @@ export async function updateProfile(req: AuthRequest, res: Response, next: NextF
     if (nickname !== undefined) user.nickname = nickname
     if (email !== undefined) user.email = email
     user.updatedAt = new Date()
+    dataStore.markUpdated()
 
     res.json({
       code: 200,

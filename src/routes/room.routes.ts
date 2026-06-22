@@ -16,6 +16,6 @@ router.delete('/:id', authMiddleware, adminMiddleware, deleteRoom)
 
 router.get('/:roomId/unavailable-dates', getUnavailableDates)
 router.post('/:roomId/unavailable-dates', authMiddleware, adminMiddleware, addUnavailableDate)
-router.delete('/unavailable-dates/:id', authMiddleware, adminMiddleware, deleteUnavailableDate)
+router.delete('/:roomId/unavailable-dates/:id', authMiddleware, adminMiddleware, deleteUnavailableDate)
 
 export default router

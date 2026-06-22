@@ -3,7 +3,6 @@ import { dataStore } from '../data/store'
 import { AppError } from '../middleware/error'
 
 export interface CreateUnavailableDateDto {
-  roomId: string
   date: string
   startTime?: string
   endTime?: string
@@ -12,10 +11,16 @@ export interface CreateUnavailableDateDto {
 
 export async function addUnavailableDate(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { roomId, date, startTime, endTime, reason } = req.body as CreateUnavailableDateDto
+    const { roomId } = req.params
+    const { date, startTime, endTime, reason } = req.body as CreateUnavailableDateDto
 
     if (!roomId || !date) {
       throw new AppError('房间ID和日期不能为空', 400)
+    }
+
+    const room = dataStore.rooms.find(r => r.id === roomId)
+    if (!room) {
+      throw new AppError('琴房不存在', 404)
     }
 
     const existing = dataStore.unavailableDates.find(
@@ -45,13 +50,11 @@ export async function addUnavailableDate(req: Request, res: Response, next: Next
 
 export async function getUnavailableDates(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { roomId, startDate, endDate } = req.query
+    const { roomId } = req.params
+    const { startDate, endDate } = req.query
 
-    let list = [...dataStore.unavailableDates]
+    let list = dataStore.unavailableDates.filter(ud => ud.roomId === roomId)
 
-    if (roomId) {
-      list = list.filter(ud => ud.roomId === roomId)
-    }
     if (startDate) {
       list = list.filter(ud => ud.date >= startDate)
     }
@@ -81,6 +84,7 @@ export async function deleteUnavailableDate(req: Request, res: Response, next: N
     }
 
     dataStore.unavailableDates.splice(index, 1)
+    dataStore.markUpdated()
 
     res.json({
       code: 200,

@@ -3,7 +3,7 @@ import { dataStore } from '../data/store'
 import { BookingStatus } from '../entities/Booking'
 import { AppError } from '../middleware/error'
 import { AuthRequest } from '../middleware/auth'
-import { isTimeSlotAvailable, calculatePrice, getAvailableTimeSlots } from '../services/booking.service'
+import { isTimeSlotAvailable, calculatePrice, getAvailableTimeSlots, validateTimeRange } from '../services/booking.service'
 import dayjs from 'dayjs'
 
 export interface CreateBookingDto {
@@ -13,6 +13,13 @@ export interface CreateBookingDto {
   endTime: string
   duration: number
   peopleCount: number
+}
+
+export interface RescheduleBookingDto {
+  bookingDate?: string
+  startTime?: string
+  endTime?: string
+  duration?: number
 }
 
 function timeToMinutes(time: string): number {
@@ -33,6 +40,11 @@ export async function createBooking(req: AuthRequest, res: Response, next: NextF
 
     if (!roomId || !bookingDate || !startTime || !endTime || !duration) {
       throw new AppError('请填写完整的预约信息', 400)
+    }
+
+    const timeValidation = validateTimeRange(startTime, endTime, duration)
+    if (!timeValidation.valid) {
+      throw new AppError(timeValidation.reason!, 400)
     }
 
     if (dayjs(bookingDate).isBefore(dayjs().startOf('day'))) {
@@ -57,9 +69,9 @@ export async function createBooking(req: AuthRequest, res: Response, next: NextF
       throw new AppError(`该琴房最多容纳${room.capacity}人`, 400)
     }
 
-    const available = await isTimeSlotAvailable(roomId, bookingDate, startTime, endTime)
-    if (!available) {
-      throw new AppError('该时段已被预约或不可用', 400)
+    const availability = await isTimeSlotAvailable(roomId, bookingDate, startTime, endTime)
+    if (!availability.available) {
+      throw new AppError(`该时段不可用：${availability.reason}`, 400)
     }
 
     const totalAmount = calculatePrice(room.pricePerHour, duration)
@@ -85,6 +97,79 @@ export async function createBooking(req: AuthRequest, res: Response, next: NextF
     res.status(201).json({
       code: 200,
       message: '预约成功',
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function rescheduleBooking(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = req.user?.userId
+    const { id } = req.params
+    const { bookingDate, startTime, endTime, duration } = req.body as RescheduleBookingDto
+
+    const booking = dataStore.bookings.find(b => b.id === id)
+    if (!booking) {
+      throw new AppError('预约不存在', 404)
+    }
+
+    if (booking.userId !== userId && req.user?.role !== 'admin') {
+      throw new AppError('无权限操作该预约', 403)
+    }
+
+    if (booking.status !== BookingStatus.CONFIRMED) {
+      throw new AppError('该状态下的预约不能改期', 400)
+    }
+
+    const newBookingDate = bookingDate || booking.bookingDate
+    const newStartTime = startTime || booking.startTime
+    const newEndTime = endTime || booking.endTime
+    const newDuration = duration || booking.duration
+
+    const timeValidation = validateTimeRange(newStartTime, newEndTime, newDuration)
+    if (!timeValidation.valid) {
+      throw new AppError(timeValidation.reason!, 400)
+    }
+
+    if (dayjs(newBookingDate).isBefore(dayjs().startOf('day'))) {
+      throw new AppError('不能改期到过去的日期', 400)
+    }
+
+    const room = dataStore.rooms.find(r => r.id === booking.roomId)
+    if (!room) {
+      throw new AppError('琴房不存在', 404)
+    }
+
+    const availability = await isTimeSlotAvailable(booking.roomId, newBookingDate, newStartTime, newEndTime, booking.id)
+    if (!availability.available) {
+      throw new AppError(`该时段不可用：${availability.reason}`, 400)
+    }
+
+    const originalBooking = {
+      bookingDate: booking.bookingDate,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+      duration: booking.duration,
+    }
+
+    booking.bookingDate = newBookingDate
+    booking.startTime = newStartTime
+    booking.endTime = newEndTime
+    booking.duration = newDuration
+    booking.totalAmount = calculatePrice(room.pricePerHour, newDuration)
+    booking.updatedAt = new Date()
+    booking.previousBooking = originalBooking
+
+    dataStore.markUpdated()
+
+    const roomInfo = dataStore.rooms.find(r => r.id === booking.roomId)
+    const result = { ...booking, room: roomInfo }
+
+    res.json({
+      code: 200,
+      message: '改期成功',
       data: result,
     })
   } catch (error) {
@@ -119,6 +204,8 @@ export async function cancelBooking(req: AuthRequest, res: Response, next: NextF
     booking.cancelledAt = new Date()
     booking.cancelReason = reason
     booking.updatedAt = new Date()
+
+    dataStore.markUpdated()
 
     res.json({
       code: 200,
@@ -167,15 +254,15 @@ export async function extendBooking(req: AuthRequest, res: Response, next: NextF
       throw new AppError('续时后超出营业时间', 400)
     }
 
-    const available = await isTimeSlotAvailable(
+    const availability = await isTimeSlotAvailable(
       booking.roomId,
       booking.bookingDate,
       booking.endTime,
       newEndTime,
       booking.id
     )
-    if (!available) {
-      throw new AppError('该时段已被预约，无法续时', 400)
+    if (!availability.available) {
+      throw new AppError(`该时段不可用：${availability.reason}`, 400)
     }
 
     const extendPrice = calculatePrice(room.pricePerHour, extendDuration)
@@ -185,6 +272,8 @@ export async function extendBooking(req: AuthRequest, res: Response, next: NextF
     booking.totalAmount = Math.round((booking.totalAmount + extendPrice) * 100) / 100
     booking.paidAmount = Math.round((booking.paidAmount + extendPrice) * 100) / 100
     booking.updatedAt = new Date()
+
+    dataStore.markUpdated()
 
     res.json({
       code: 200,

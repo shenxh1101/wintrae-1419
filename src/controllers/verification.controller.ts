@@ -3,10 +3,13 @@ import { dataStore } from '../data/store'
 import { BookingStatus } from '../entities/Booking'
 import { AppError } from '../middleware/error'
 import { AuthRequest } from '../middleware/auth'
+import { UserRole } from '../entities/User'
 import dayjs from 'dayjs'
 
 export async function checkIn(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = req.user?.userId
+    const userRole = req.user?.role
     const { bookingId, verificationCode } = req.body
 
     if (!bookingId || !verificationCode) {
@@ -16,6 +19,10 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
     const booking = dataStore.bookings.find(b => b.id === bookingId)
     if (!booking) {
       throw new AppError('预约不存在', 404)
+    }
+
+    if (booking.userId !== userId && userRole !== UserRole.ADMIN) {
+      throw new AppError('无权限操作该预约', 403)
     }
 
     if (booking.verificationCode !== verificationCode) {
@@ -38,6 +45,8 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
     booking.checkInTime = new Date()
     booking.updatedAt = new Date()
 
+    dataStore.markUpdated()
+
     res.json({
       code: 200,
       message: '核销成功',
@@ -50,6 +59,8 @@ export async function checkIn(req: AuthRequest, res: Response, next: NextFunctio
 
 export async function checkOut(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = req.user?.userId
+    const userRole = req.user?.role
     const { bookingId } = req.body
 
     if (!bookingId) {
@@ -61,6 +72,10 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
       throw new AppError('预约不存在', 404)
     }
 
+    if (booking.userId !== userId && userRole !== UserRole.ADMIN) {
+      throw new AppError('无权限操作该预约', 403)
+    }
+
     if (booking.status !== BookingStatus.CHECKED_IN) {
       throw new AppError('该预约状态不能退房', 400)
     }
@@ -68,6 +83,8 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
     booking.status = BookingStatus.COMPLETED
     booking.checkOutTime = new Date()
     booking.updatedAt = new Date()
+
+    dataStore.markUpdated()
 
     res.json({
       code: 200,
@@ -81,6 +98,11 @@ export async function checkOut(req: AuthRequest, res: Response, next: NextFuncti
 
 export async function getOvertimeBookings(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userRole = req.user?.role
+    if (userRole !== UserRole.ADMIN) {
+      throw new AppError('无权限查看超时预约列表', 403)
+    }
+
     const now = dayjs()
     const today = now.format('YYYY-MM-DD')
     const currentTime = now.format('HH:mm')

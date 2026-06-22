@@ -94,6 +94,7 @@ export async function cancelClosure(req: AuthRequest, res: Response, next: NextF
 
     closure.status = ClosureStatus.CANCELLED
     closure.updatedAt = new Date()
+    dataStore.markUpdated()
 
     res.json({
       code: 200,
