@@ -16,4 +16,10 @@ export default {
     overtimeTolerance: 15,
     reminderBeforeStart: 15,
   },
+  refund: {
+    fullRefundBeforeMinutes: 120,
+    partialRefundBeforeMinutes: 30,
+    partialRefundRate: 0.5,
+    noRefundAfterStart: true,
+  },
 }

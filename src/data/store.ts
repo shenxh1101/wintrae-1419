@@ -1,15 +1,17 @@
 import { User, UserRole } from '../entities/User'
 import { PianoRoom, InstrumentType } from '../entities/PianoRoom'
-import { Booking, BookingStatus } from '../entities/Booking'
+import { Booking, BookingStatus, RefundStatus, DeductionType } from '../entities/Booking'
 import { UnavailableDate } from '../entities/UnavailableDate'
 import { TemporaryClosure, ClosureType, ClosureStatus } from '../entities/TemporaryClosure'
 import { Coupon, CouponType } from '../entities/Coupon'
 import { MemberLevel } from '../entities/MemberLevel'
+import { UserWallet, StoredValueCard, TimesCard, TimesCardStatus } from '../entities/Wallet'
 import * as bcrypt from 'bcryptjs'
 import { v4 as uuidv4 } from 'uuid'
 import { generateOrderNo, generateVerificationCode } from '../utils/auth'
 import * as fs from 'fs'
 import * as path from 'path'
+import dayjs from 'dayjs'
 
 const DATA_FILE = path.join(__dirname, '../../data.json')
 
@@ -20,6 +22,9 @@ interface DataStore {
   unavailableDates: UnavailableDate[]
   closures: TemporaryClosure[]
   coupons: Coupon[]
+  wallets: UserWallet[]
+  storedValueCards: StoredValueCard[]
+  timesCards: TimesCard[]
 }
 
 const store: DataStore = {
@@ -29,6 +34,9 @@ const store: DataStore = {
   unavailableDates: [],
   closures: [],
   coupons: [],
+  wallets: [],
+  storedValueCards: [],
+  timesCards: [],
 }
 
 function reviveDates(key: string, value: any): any {
@@ -49,6 +57,9 @@ function loadFromFile(): boolean {
       store.unavailableDates = parsed.unavailableDates || []
       store.closures = parsed.closures || []
       store.coupons = parsed.coupons || []
+      store.wallets = parsed.wallets || []
+      store.storedValueCards = parsed.storedValueCards || []
+      store.timesCards = parsed.timesCards || []
 
       for (const user of store.users) {
         if (!user.memberLevel) {
@@ -68,9 +79,23 @@ function loadFromFile(): boolean {
           booking.memberDiscountAmount = 0
           booking.couponDiscountAmount = 0
         }
+        if (booking.deductionType === undefined) {
+          booking.deductionType = DeductionType.NONE
+          booking.deductionAmount = 0
+        }
+        if (booking.refundStatus === undefined) {
+          booking.refundStatus = RefundStatus.NONE
+          booking.refundAmount = 0
+        }
       }
 
-      console.log(`从数据文件加载: ${store.users.length} 用户, ${store.rooms.length} 琴房, ${store.bookings.length} 预约, ${store.coupons.length} 优惠券`)
+      for (const tc of store.timesCards) {
+        if (!tc.status) {
+          tc.status = tc.remainingTimes > 0 ? TimesCardStatus.ACTIVE : TimesCardStatus.USED_UP
+        }
+      }
+
+      console.log(`从数据文件加载: ${store.users.length} 用户, ${store.rooms.length} 琴房, ${store.bookings.length} 预约, ${store.coupons.length} 优惠券, ${store.wallets.length} 钱包, ${store.timesCards.length} 次卡`)
       return true
     }
   } catch (error) {
@@ -102,6 +127,15 @@ function scheduleSave(): void {
   }, 100)
 }
 
+function generateCardNo(prefix: string, len: number = 8): string {
+  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+  let result = prefix
+  for (let i = 0; i < len; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return result
+}
+
 async function initData() {
   const loaded = loadFromFile()
 
@@ -125,9 +159,10 @@ async function initData() {
       },
     })
 
+    const testUserId = uuidv4()
     const hashedUserPassword = await bcrypt.hash('user123', 10)
     store.users.push({
-      id: uuidv4(),
+      id: testUserId,
       phone: '13900139000',
       password: hashedUserPassword,
       nickname: '测试用户',
@@ -142,6 +177,65 @@ async function initData() {
       comparePassword: function (password: string) {
         return bcrypt.compare(password, this.password)
       },
+    })
+
+    store.wallets.push({
+      id: uuidv4(),
+      userId: testUserId,
+      balance: 500,
+      totalRecharged: 500,
+      totalConsumed: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    const today = dayjs().format('YYYY-MM-DD')
+    const oneYearLater = dayjs().add(1, 'year').format('YYYY-MM-DD')
+
+    store.storedValueCards.push({
+      id: uuidv4(),
+      cardNo: generateCardNo('SV'),
+      name: '500元储值卡',
+      faceValue: 500,
+      actualPrice: 450,
+      balance: 500,
+      userId: testUserId,
+      isActive: true,
+      validFrom: today,
+      validUntil: oneYearLater,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    store.timesCards.push({
+      id: uuidv4(),
+      cardNo: generateCardNo('TC'),
+      name: '钢琴10次卡',
+      totalTimes: 10,
+      usedTimes: 2,
+      remainingTimes: 8,
+      userId: testUserId,
+      status: TimesCardStatus.ACTIVE,
+      validFrom: today,
+      validUntil: oneYearLater,
+      instrumentType: InstrumentType.PIANO,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    store.timesCards.push({
+      id: uuidv4(),
+      cardNo: generateCardNo('TC'),
+      name: '通用20次卡',
+      totalTimes: 20,
+      usedTimes: 0,
+      remainingTimes: 20,
+      userId: testUserId,
+      status: TimesCardStatus.ACTIVE,
+      validFrom: today,
+      validUntil: oneYearLater,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
 
     const rooms = [
@@ -203,7 +297,6 @@ async function initData() {
       })
     }
 
-    const today = new Date().toISOString().slice(0, 10)
     store.coupons.push({
       id: uuidv4(),
       code: 'WELCOME20',
@@ -242,8 +335,8 @@ async function initData() {
   }
 
   console.log('管理员账号: 13800138000 / admin123')
-  console.log('普通用户账号: 13900139000 / user123 (黄金会员)')
-  console.log(`已加载 ${store.rooms.length} 个琴房, ${store.coupons.length} 个优惠券`)
+  console.log('普通用户账号: 13900139000 / user123 (黄金会员, 余额500元, 10次卡+20次卡)')
+  console.log(`已加载 ${store.rooms.length} 个琴房, ${store.coupons.length} 个优惠券, ${store.wallets.length} 个钱包`)
   console.log(`数据文件: ${DATA_FILE}`)
 }
 
@@ -275,6 +368,18 @@ export const dataStore = {
     return store.coupons
   },
 
+  get wallets() {
+    return store.wallets
+  },
+
+  get storedValueCards() {
+    return store.storedValueCards
+  },
+
+  get timesCards() {
+    return store.timesCards
+  },
+
   addUser(user: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'hashPassword' | 'comparePassword'> & { password: string }): User {
     const newUser: User = {
       ...user,
@@ -289,6 +394,17 @@ export const dataStore = {
       },
     }
     store.users.push(newUser)
+
+    store.wallets.push({
+      id: uuidv4(),
+      userId: newUser.id,
+      balance: 0,
+      totalRecharged: 0,
+      totalConsumed: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
     scheduleSave()
     return newUser
   },
@@ -352,6 +468,87 @@ export const dataStore = {
     store.coupons.push(newCoupon)
     scheduleSave()
     return newCoupon
+  },
+
+  addTimesCard(card: Omit<TimesCard, 'id' | 'cardNo' | 'status' | 'createdAt' | 'updatedAt'> & { userId: string }): TimesCard {
+    const newCard: TimesCard = {
+      ...card,
+      id: uuidv4(),
+      cardNo: generateCardNo('TC'),
+      status: TimesCardStatus.ACTIVE,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    store.timesCards.push(newCard)
+    scheduleSave()
+    return newCard
+  },
+
+  rechargeWallet(userId: string, amount: number): UserWallet {
+    let wallet = store.wallets.find(w => w.userId === userId)
+    if (!wallet) {
+      wallet = {
+        id: uuidv4(),
+        userId,
+        balance: 0,
+        totalRecharged: 0,
+        totalConsumed: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      store.wallets.push(wallet)
+    }
+    wallet.balance += amount
+    wallet.totalRecharged += amount
+    wallet.updatedAt = new Date()
+    scheduleSave()
+    return wallet
+  },
+
+  consumeWallet(userId: string, amount: number): boolean {
+    const wallet = store.wallets.find(w => w.userId === userId)
+    if (!wallet || wallet.balance < amount) return false
+    wallet.balance -= amount
+    wallet.totalConsumed += amount
+    wallet.updatedAt = new Date()
+    scheduleSave()
+    return true
+  },
+
+  refundWallet(userId: string, amount: number): boolean {
+    const wallet = store.wallets.find(w => w.userId === userId)
+    if (!wallet) return false
+    wallet.balance += amount
+    wallet.totalConsumed = Math.max(0, wallet.totalConsumed - amount)
+    wallet.updatedAt = new Date()
+    scheduleSave()
+    return true
+  },
+
+  consumeTimesCard(cardId: string, times: number = 1): boolean {
+    const card = store.timesCards.find(c => c.id === cardId)
+    if (!card || card.remainingTimes < times) return false
+    card.usedTimes += times
+    card.remainingTimes -= times
+    if (card.remainingTimes <= 0) {
+      card.status = TimesCardStatus.USED_UP
+    }
+    card.updatedAt = new Date()
+    scheduleSave()
+    return true
+  },
+
+  refundTimesCard(cardId: string, times: number = 1): boolean {
+    const card = store.timesCards.find(c => c.id === cardId)
+    if (!card) return false
+    card.usedTimes = Math.max(0, card.usedTimes - times)
+    card.remainingTimes += times
+    if (card.status === TimesCardStatus.USED_UP && card.remainingTimes > 0) {
+      card.status = TimesCardStatus.ACTIVE
+    }
+    card.updatedAt = new Date()
+    scheduleSave()
+    return true
   },
 
   markUpdated(): void {

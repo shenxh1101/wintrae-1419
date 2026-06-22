@@ -1,31 +1,31 @@
 {
   "users": [
     {
-      "id": "98bab558-8659-4444-81ee-53f79dc17c1d",
+      "id": "0e5c8777-1014-449b-99cb-14d409f76c84",
       "phone": "13800138000",
-      "password": "$2a$10$x.hiH1Cqe5HtzHKb5ZcKkOPD4GRt6cyb/I7UpSztNp3Hxqqm1wCpe",
+      "password": "$2a$10$ZVEerOz8UGvAhD4igx34GOSI1bDIt8qUKGzToefeL7GMYpvk.jhCK",
       "nickname": "超级管理员",
       "role": "admin",
       "memberLevel": "normal",
       "isActive": true,
-      "createdAt": "2026-06-22T00:10:39.980Z",
-      "updatedAt": "2026-06-22T00:10:39.980Z"
+      "createdAt": "2026-06-22T00:24:11.529Z",
+      "updatedAt": "2026-06-22T00:24:11.529Z"
     },
     {
-      "id": "c88fdf93-3348-4926-85c3-3d43d21c52c8",
+      "id": "3940d954-6475-4b4f-afd3-e3bf7674cda7",
       "phone": "13900139000",
-      "password": "$2a$10$0XnzxGQV305bv3qHtzOGk.1soqLAOm5v7E0nY2rwW.76Kdo6uwv4i",
+      "password": "$2a$10$HZ8hZ/h9KA.kktSWTORYmOdVIauVmpPrpNID3betdum0uoNWrh8Bm",
       "nickname": "测试用户",
       "role": "user",
       "memberLevel": "gold",
       "isActive": true,
-      "createdAt": "2026-06-22T00:10:40.058Z",
-      "updatedAt": "2026-06-22T00:10:40.058Z"
+      "createdAt": "2026-06-22T00:24:11.617Z",
+      "updatedAt": "2026-06-22T00:24:11.617Z"
     }
   ],
   "rooms": [
     {
-      "id": "5f6705bb-6665-4e15-8f7e-3feedc7dfaf7",
+      "id": "66ab4ecd-e557-4161-8e53-f9845a8a55a7",
       "name": "A1 豪华钢琴房",
       "capacity": 2,
       "instruments": [
@@ -37,11 +37,11 @@
       "description": "配备施坦威三角钢琴，专业隔音设计",
       "isActive": true,
       "reviewCount": 0,
-      "createdAt": "2026-06-22T00:10:40.058Z",
-      "updatedAt": "2026-06-22T00:10:40.058Z"
+      "createdAt": "2026-06-22T00:24:11.620Z",
+      "updatedAt": "2026-06-22T00:24:11.620Z"
     },
     {
-      "id": "76953278-6f14-439d-93be-340cc41f190b",
+      "id": "9bd347dd-b7cc-468f-850c-b2773fe8d279",
       "name": "A2 标准钢琴房",
       "capacity": 2,
       "instruments": [
@@ -53,11 +53,11 @@
       "description": "雅马哈立式钢琴，适合练习",
       "isActive": true,
       "reviewCount": 0,
-      "createdAt": "2026-06-22T00:10:40.058Z",
-      "updatedAt": "2026-06-22T00:10:40.058Z"
+      "createdAt": "2026-06-22T00:24:11.620Z",
+      "updatedAt": "2026-06-22T00:24:11.620Z"
     },
     {
-      "id": "0f2edd8b-6860-4b8e-9995-1be58543fbe5",
+      "id": "efdb78a7-16c3-4ea9-870c-f73fa128c912",
       "name": "B1 综合琴房",
       "capacity": 4,
       "instruments": [
@@ -71,11 +71,11 @@
       "description": "小型合奏室，多种乐器可用",
       "isActive": true,
       "reviewCount": 0,
-      "createdAt": "2026-06-22T00:10:40.058Z",
-      "updatedAt": "2026-06-22T00:10:40.058Z"
+      "createdAt": "2026-06-22T00:24:11.620Z",
+      "updatedAt": "2026-06-22T00:24:11.620Z"
     },
     {
-      "id": "0c8ce9c5-6a0d-43bc-aa88-58e5fe8150e9",
+      "id": "59a3df03-a026-48ba-a658-cdd0aab6e4e1",
       "name": "C1 打击乐室",
       "capacity": 3,
       "instruments": [
@@ -88,11 +88,11 @@
       "description": "架子鼓与吉他练习室",
       "isActive": true,
       "reviewCount": 0,
-      "createdAt": "2026-06-22T00:10:40.058Z",
-      "updatedAt": "2026-06-22T00:10:40.058Z"
+      "createdAt": "2026-06-22T00:24:11.620Z",
+      "updatedAt": "2026-06-22T00:24:11.620Z"
     },
     {
-      "id": "238ef0f0-21ff-487b-86ff-47e7a43d3074",
+      "id": "70dd438a-f028-4b41-8c84-977c787b59f7",
       "name": "D1 管弦乐室",
       "capacity": 6,
       "instruments": [
@@ -107,8 +107,8 @@
       "description": "大型合奏室，适合管弦乐排练",
       "isActive": true,
       "reviewCount": 0,
-      "createdAt": "2026-06-22T00:10:40.058Z",
-      "updatedAt": "2026-06-22T00:10:40.058Z"
+      "createdAt": "2026-06-22T00:24:11.620Z",
+      "updatedAt": "2026-06-22T00:24:11.620Z"
     }
   ],
   "bookings": [],
@@ -116,7 +116,7 @@
   "closures": [],
   "coupons": [
     {
-      "id": "08aff913-eb6c-40b2-840c-58fe694b5446",
+      "id": "46e4c999-499b-49e2-a667-b5fb95f5d4af",
       "code": "WELCOME20",
       "name": "新客立减20元",
       "type": "fixed",
@@ -127,11 +127,11 @@
       "usageLimit": 1000,
       "usedCount": 0,
       "isActive": true,
-      "createdAt": "2026-06-22T00:10:40.058Z",
-      "updatedAt": "2026-06-22T00:10:40.058Z"
+      "createdAt": "2026-06-22T00:24:11.620Z",
+      "updatedAt": "2026-06-22T00:24:11.620Z"
     },
     {
-      "id": "707ea239-f5e2-4429-9138-f07be775d76b",
+      "id": "6e40cec0-91cd-4d56-9192-1d31590e96d5",
       "code": "PIANO10",
       "name": "钢琴房9折券",
       "type": "percentage",
@@ -143,8 +143,66 @@
       "usageLimit": 500,
       "usedCount": 0,
       "isActive": true,
-      "createdAt": "2026-06-22T00:10:40.058Z",
-      "updatedAt": "2026-06-22T00:10:40.058Z"
+      "createdAt": "2026-06-22T00:24:11.620Z",
+      "updatedAt": "2026-06-22T00:24:11.620Z"
+    }
+  ],
+  "wallets": [
+    {
+      "id": "7b49ba80-fca4-48dd-8b7d-3c95bcb3ed94",
+      "userId": "3940d954-6475-4b4f-afd3-e3bf7674cda7",
+      "balance": 500,
+      "totalRecharged": 500,
+      "totalConsumed": 0,
+      "createdAt": "2026-06-22T00:24:11.617Z",
+      "updatedAt": "2026-06-22T00:24:11.617Z"
+    }
+  ],
+  "storedValueCards": [
+    {
+      "id": "d26585f2-ac1e-4245-96e3-59de9500e4cc",
+      "cardNo": "SVCSIKT07M",
+      "name": "500元储值卡",
+      "faceValue": 500,
+      "actualPrice": 450,
+      "balance": 500,
+      "userId": "3940d954-6475-4b4f-afd3-e3bf7674cda7",
+      "isActive": true,
+      "validFrom": "2026-06-22",
+      "validUntil": "2027-06-22",
+      "createdAt": "2026-06-22T00:24:11.620Z",
+      "updatedAt": "2026-06-22T00:24:11.620Z"
+    }
+  ],
+  "timesCards": [
+    {
+      "id": "e0feb109-c0dc-41e1-b4a1-b904c8f7da95",
+      "cardNo": "TCFCYSX1Q2",
+      "name": "钢琴10次卡",
+      "totalTimes": 10,
+      "usedTimes": 2,
+      "remainingTimes": 8,
+      "userId": "3940d954-6475-4b4f-afd3-e3bf7674cda7",
+      "status": "active",
+      "validFrom": "2026-06-22",
+      "validUntil": "2027-06-22",
+      "instrumentType": "piano",
+      "createdAt": "2026-06-22T00:24:11.620Z",
+      "updatedAt": "2026-06-22T00:24:11.620Z"
+    },
+    {
+      "id": "452ac494-3e77-433a-8f66-26de33ac3264",
+      "cardNo": "TCSEOIYFPA",
+      "name": "通用20次卡",
+      "totalTimes": 20,
+      "usedTimes": 0,
+      "remainingTimes": 20,
+      "userId": "3940d954-6475-4b4f-afd3-e3bf7674cda7",
+      "status": "active",
+      "validFrom": "2026-06-22",
+      "validUntil": "2027-06-22",
+      "createdAt": "2026-06-22T00:24:11.620Z",
+      "updatedAt": "2026-06-22T00:24:11.620Z"
     }
   ]
 }

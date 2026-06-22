@@ -11,6 +11,26 @@ export enum BookingStatus {
   NO_SHOW = 'no_show',
 }
 
+export enum RefundStatus {
+  NONE = 'none',
+  PENDING = 'pending',
+  REFUNDED = 'refunded',
+  PARTIAL_REFUNDED = 'partial_refunded',
+  FAILED = 'failed',
+}
+
+export enum RefundRule {
+  FULL_REFUND = 'full_refund',
+  PARTIAL_REFUND = 'partial_refund',
+  NO_REFUND = 'no_refund',
+}
+
+export enum DeductionType {
+  NONE = 'none',
+  BALANCE = 'balance',
+  TIMES_CARD = 'times_card',
+}
+
 export class Booking {
   id: string
 
@@ -46,11 +66,29 @@ export class Booking {
 
   paidAmount: number
 
+  deductionType: DeductionType
+
+  deductionAmount: number
+
+  timesCardId?: string
+
+  timesCardConsumed?: number
+
   memberLevel?: string
 
   couponId?: string
 
   couponCode?: string
+
+  refundStatus: RefundStatus
+
+  refundRule?: RefundRule
+
+  refundAmount: number
+
+  refundAt?: Date
+
+  refundReason?: string
 
   verificationCode?: string
 

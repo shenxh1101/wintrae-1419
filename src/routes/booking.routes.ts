@@ -7,6 +7,8 @@ import {
   getBookingById,
   getMyBookings,
   getAllBookings,
+  getBookingStats,
+  exportBookings,
   checkAvailability,
   calculateFee,
   getConflictCalendarApi,
@@ -22,6 +24,8 @@ router.get('/conflict-calendar', getConflictCalendarApi)
 router.post('/', authMiddleware, createBooking)
 router.get('/my', authMiddleware, getMyBookings)
 router.get('/all', authMiddleware, adminMiddleware, getAllBookings)
+router.get('/stats', authMiddleware, adminMiddleware, getBookingStats)
+router.get('/export', authMiddleware, adminMiddleware, exportBookings)
 router.get('/:id', authMiddleware, getBookingById)
 router.post('/:id/reschedule', authMiddleware, rescheduleBooking)
 router.post('/:id/cancel', authMiddleware, cancelBooking)

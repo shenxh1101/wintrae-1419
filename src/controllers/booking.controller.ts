@@ -1,11 +1,22 @@
 import { Request, Response, NextFunction } from 'express'
 import { dataStore } from '../data/store'
-import { BookingStatus } from '../entities/Booking'
+import { BookingStatus, RefundStatus, DeductionType } from '../entities/Booking'
 import { MemberLevel } from '../entities/MemberLevel'
 import { UserRole } from '../entities/User'
 import { AppError } from '../middleware/error'
 import { AuthRequest } from '../middleware/auth'
-import { isTimeSlotAvailable, calculatePrice, getAvailableTimeSlots, validateTimeRange, calculateFeeDetail, getConflictCalendar } from '../services/booking.service'
+import {
+  isTimeSlotAvailable,
+  calculatePrice,
+  getAvailableTimeSlots,
+  validateTimeRange,
+  calculateFeeDetail,
+  getConflictCalendar,
+  getMultiRoomConflictCalendar,
+  calculateRefund,
+  calculateBookingStats,
+  RefundCalculation,
+} from '../services/booking.service'
 import dayjs from 'dayjs'
 
 export interface CreateBookingDto {
@@ -16,6 +27,8 @@ export interface CreateBookingDto {
   duration: number
   peopleCount: number
   couponCode?: string
+  deductionType?: 'none' | 'balance' | 'times_card'
+  timesCardId?: string
 }
 
 export interface RescheduleBookingDto {
@@ -39,7 +52,17 @@ function minutesToTime(minutes: number): string {
 export async function createBooking(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const userId = req.user?.userId
-    const { roomId, bookingDate, startTime, endTime, duration, peopleCount, couponCode } = req.body as CreateBookingDto
+    const {
+      roomId,
+      bookingDate,
+      startTime,
+      endTime,
+      duration,
+      peopleCount,
+      couponCode,
+      deductionType = DeductionType.NONE,
+      timesCardId,
+    } = req.body as CreateBookingDto
 
     if (!roomId || !bookingDate || !startTime || !endTime || !duration) {
       throw new AppError('请填写完整的预约信息', 400)
@@ -79,7 +102,38 @@ export async function createBooking(req: AuthRequest, res: Response, next: NextF
 
     const user = dataStore.users.find(u => u.id === userId)
     const memberLevel = user?.memberLevel || MemberLevel.NORMAL
-    const feeDetail = calculateFeeDetail(room.pricePerHour, duration, memberLevel, couponCode)
+    const feeDetail = calculateFeeDetail(
+      room.pricePerHour,
+      duration,
+      memberLevel,
+      couponCode,
+      deductionType as DeductionType,
+      timesCardId,
+      userId
+    )
+
+    if (feeDetail.deductionType === DeductionType.BALANCE && feeDetail.balanceBefore !== undefined) {
+      if (feeDetail.balanceBefore < feeDetail.deductionAmount) {
+        throw new AppError('余额不足，请选择其他支付方式', 400)
+      }
+    }
+
+    if (feeDetail.deductionType === DeductionType.TIMES_CARD && !feeDetail.timesCardId) {
+      throw new AppError('次卡无效或次数不足', 400)
+    }
+
+    if (feeDetail.deductionType === DeductionType.BALANCE) {
+      dataStore.consumeWallet(userId!, feeDetail.deductionAmount)
+    } else if (feeDetail.deductionType === DeductionType.TIMES_CARD && feeDetail.timesCardId) {
+      dataStore.consumeTimesCard(feeDetail.timesCardId, 1)
+    }
+
+    if (feeDetail.couponId) {
+      const coupon = dataStore.coupons.find(c => c.id === feeDetail.couponId)
+      if (coupon) {
+        coupon.usedCount++
+      }
+    }
 
     const booking = dataStore.addBooking({
       userId: userId!,
@@ -94,7 +148,13 @@ export async function createBooking(req: AuthRequest, res: Response, next: NextF
       memberDiscountAmount: feeDetail.memberDiscountAmount,
       couponDiscountAmount: feeDetail.couponDiscountAmount,
       totalAmount: feeDetail.totalAmount,
-      paidAmount: feeDetail.totalAmount,
+      paidAmount: feeDetail.finalPayAmount,
+      deductionType: feeDetail.deductionType,
+      deductionAmount: feeDetail.deductionAmount,
+      timesCardId: feeDetail.timesCardId,
+      timesCardConsumed: feeDetail.deductionType === DeductionType.TIMES_CARD ? 1 : 0,
+      refundStatus: RefundStatus.NONE,
+      refundAmount: 0,
       memberLevel,
       couponId: feeDetail.couponId,
       couponCode: feeDetail.couponCode,
@@ -102,16 +162,19 @@ export async function createBooking(req: AuthRequest, res: Response, next: NextF
       overtimeReminderSent: false,
     })
 
-    if (feeDetail.couponId) {
-      const coupon = dataStore.coupons.find(c => c.id === feeDetail.couponId)
-      if (coupon) {
-        coupon.usedCount++
-        dataStore.markUpdated()
-      }
-    }
+    dataStore.markUpdated()
 
     const roomInfo = dataStore.rooms.find(r => r.id === roomId)
-    const result = { ...booking, room: roomInfo }
+    const result = {
+      ...booking,
+      room: roomInfo,
+      wallet: feeDetail.deductionType === DeductionType.BALANCE
+        ? { balanceBefore: feeDetail.balanceBefore, balanceAfter: feeDetail.balanceAfter }
+        : undefined,
+      timesCard: feeDetail.deductionType === DeductionType.TIMES_CARD
+        ? { cardId: feeDetail.timesCardId, cardName: feeDetail.timesCardName, remaining: feeDetail.timesCardRemaining }
+        : undefined,
+    }
 
     res.status(201).json({
       code: 200,
@@ -225,21 +288,48 @@ export async function cancelBooking(req: AuthRequest, res: Response, next: NextF
       throw new AppError('该预约已取消', 400)
     }
 
-    if (booking.status === BookingStatus.COMPLETED) {
-      throw new AppError('已完成的预约不能取消', 400)
+    const refundCalc: RefundCalculation = calculateRefund(booking)
+
+    if (!refundCalc.refundable) {
+      throw new AppError(refundCalc.reason, 400)
+    }
+
+    if (booking.deductionType === DeductionType.BALANCE && refundCalc.refundAmount > 0) {
+      dataStore.refundWallet(booking.userId, refundCalc.refundAmount)
+    } else if (booking.deductionType === DeductionType.TIMES_CARD && booking.timesCardId && (booking.timesCardConsumed || 0) > 0) {
+      dataStore.refundTimesCard(booking.timesCardId, booking.timesCardConsumed)
+    }
+
+    if (booking.couponId) {
+      const coupon = dataStore.coupons.find(c => c.id === booking.couponId)
+      if (coupon && coupon.usedCount > 0) {
+        coupon.usedCount--
+      }
     }
 
     booking.status = BookingStatus.CANCELLED
     booking.cancelledAt = new Date()
     booking.cancelReason = reason
+    booking.refundStatus = refundCalc.refundAmount > 0
+      ? (refundCalc.refundAmount === booking.paidAmount && booking.deductionType === DeductionType.NONE
+          ? RefundStatus.REFUNDED
+          : RefundStatus.PARTIAL_REFUNDED)
+      : RefundStatus.NONE
+    booking.refundRule = refundCalc.refundRule
+    booking.refundAmount = refundCalc.refundAmount
+    booking.refundAt = new Date()
+    booking.refundReason = refundCalc.reason
     booking.updatedAt = new Date()
 
     dataStore.markUpdated()
 
+    const room = dataStore.rooms.find(r => r.id === booking.roomId)
+    const result = { ...booking, room, refundInfo: refundCalc }
+
     res.json({
       code: 200,
       message: '取消成功',
-      data: booking,
+      data: result,
     })
   } catch (error) {
     next(error)
@@ -298,12 +388,20 @@ export async function extendBooking(req: AuthRequest, res: Response, next: NextF
     const memberLevel = (booking.memberLevel as MemberLevel) || MemberLevel.NORMAL
     const extendFeeDetail = calculateFeeDetail(room.pricePerHour, extendDuration, memberLevel)
 
+    if (extendFeeDetail.finalPayAmount > 0 && booking.deductionType === DeductionType.BALANCE) {
+      const wallet = dataStore.wallets.find(w => w.userId === userId)
+      if (!wallet || wallet.balance < extendFeeDetail.finalPayAmount) {
+        throw new AppError('余额不足', 400)
+      }
+      dataStore.consumeWallet(userId!, extendFeeDetail.finalPayAmount)
+    }
+
     booking.endTime = newEndTime
     booking.duration += extendDuration
     booking.originalAmount = Math.round((booking.originalAmount + extendOriginalPrice) * 100) / 100
     booking.memberDiscountAmount = Math.round((booking.memberDiscountAmount + extendFeeDetail.memberDiscountAmount) * 100) / 100
     booking.totalAmount = Math.round((booking.totalAmount + extendFeeDetail.totalAmount) * 100) / 100
-    booking.paidAmount = Math.round((booking.paidAmount + extendFeeDetail.totalAmount) * 100) / 100
+    booking.paidAmount = Math.round((booking.paidAmount + extendFeeDetail.finalPayAmount) * 100) / 100
     booking.updatedAt = new Date()
 
     dataStore.markUpdated()
@@ -313,7 +411,7 @@ export async function extendBooking(req: AuthRequest, res: Response, next: NextF
       message: '续时成功',
       data: {
         booking,
-        extendPrice: extendFeeDetail.totalAmount,
+        extendPrice: extendFeeDetail.finalPayAmount,
         extendFeeDetail,
       },
     })
@@ -338,10 +436,19 @@ export async function getBookingById(req: AuthRequest, res: Response, next: Next
 
     const room = dataStore.rooms.find(r => r.id === booking.roomId)
     const user = dataStore.users.find(u => u.id === booking.userId)
+    const wallet = booking.deductionType === DeductionType.BALANCE
+      ? dataStore.wallets.find(w => w.userId === booking.userId)
+      : undefined
+    const timesCard = booking.deductionType === DeductionType.TIMES_CARD && booking.timesCardId
+      ? dataStore.timesCards.find(tc => tc.id === booking.timesCardId)
+      : undefined
+
     const result = {
       ...booking,
       room,
       userInfo: user ? { id: user.id, phone: user.phone, nickname: user.nickname, memberLevel: user.memberLevel } : undefined,
+      walletInfo: wallet ? { balance: wallet.balance } : undefined,
+      timesCardInfo: timesCard ? { name: timesCard.name, remaining: timesCard.remainingTimes } : undefined,
     }
 
     res.json({
@@ -460,6 +567,166 @@ export async function getAllBookings(req: AuthRequest, res: Response, next: Next
   }
 }
 
+export async function getBookingStats(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (req.user?.role !== UserRole.ADMIN) {
+      throw new AppError('无权限访问，需要管理员权限', 403)
+    }
+
+    const { startDate, endDate, roomId } = req.query
+
+    if (!startDate || !endDate) {
+      throw new AppError('开始日期和结束日期不能为空', 400)
+    }
+
+    const stats = calculateBookingStats(
+      startDate as string,
+      endDate as string,
+      roomId as string | undefined
+    )
+
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: stats,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function exportBookings(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (req.user?.role !== UserRole.ADMIN) {
+      throw new AppError('无权限访问，需要管理员权限', 403)
+    }
+
+    const { status, roomId, bookingDate, startDate, endDate, phone } = req.query
+
+    let bookings = [...dataStore.bookings]
+
+    if (status) {
+      bookings = bookings.filter(b => b.status === status)
+    }
+
+    if (roomId) {
+      bookings = bookings.filter(b => b.roomId === roomId)
+    }
+
+    if (bookingDate) {
+      bookings = bookings.filter(b => b.bookingDate === bookingDate)
+    }
+
+    if (startDate) {
+      bookings = bookings.filter(b => b.bookingDate >= startDate)
+    }
+
+    if (endDate) {
+      bookings = bookings.filter(b => b.bookingDate <= endDate)
+    }
+
+    if (phone) {
+      const phoneStr = phone as string
+      const matchedUserIds = dataStore.users
+        .filter(u => u.phone.includes(phoneStr))
+        .map(u => u.id)
+      bookings = bookings.filter(b => matchedUserIds.includes(b.userId))
+    }
+
+    bookings.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+
+    const statusMap: Record<string, string> = {
+      pending: '待确认',
+      confirmed: '已确认',
+      checked_in: '已核销',
+      completed: '已完成',
+      cancelled: '已取消',
+      overtime: '超时',
+      no_show: '未到场',
+    }
+
+    const refundStatusMap: Record<string, string> = {
+      none: '无',
+      pending: '待退款',
+      refunded: '已退款',
+      partial_refunded: '部分退款',
+      failed: '退款失败',
+    }
+
+    const header = [
+      '订单号',
+      '创建时间',
+      '预约日期',
+      '时段',
+      '时长(分钟)',
+      '用户手机号',
+      '用户昵称',
+      '琴房名称',
+      '原价',
+      '会员折扣',
+      '优惠券折扣',
+      '抵扣金额',
+      '实付金额',
+      '订单状态',
+      '支付方式',
+      '核销码',
+      '到店时间',
+      '退房时间',
+      '退款状态',
+      '退款金额',
+      '取消原因',
+    ]
+
+    const rows = bookings.map(booking => {
+      const room = dataStore.rooms.find(r => r.id === booking.roomId)
+      const user = dataStore.users.find(u => u.id === booking.userId)
+      const deductionTypeMap: Record<string, string> = {
+        none: '在线支付',
+        balance: '余额支付',
+        times_card: '次卡抵扣',
+      }
+      return [
+        booking.orderNo,
+        dayjs(booking.createdAt).format('YYYY-MM-DD HH:mm:ss'),
+        booking.bookingDate,
+        `${booking.startTime}-${booking.endTime}`,
+        booking.duration,
+        user?.phone || '',
+        user?.nickname || '',
+        room?.name || '',
+        booking.originalAmount || booking.totalAmount,
+        booking.memberDiscountAmount || 0,
+        booking.couponDiscountAmount || 0,
+        booking.deductionAmount || 0,
+        booking.paidAmount,
+        statusMap[booking.status] || booking.status,
+        deductionTypeMap[booking.deductionType] || booking.deductionType,
+        booking.verificationCode || '',
+        booking.checkInTime ? dayjs(booking.checkInTime).format('YYYY-MM-DD HH:mm:ss') : '',
+        booking.checkOutTime ? dayjs(booking.checkOutTime).format('YYYY-MM-DD HH:mm:ss') : '',
+        refundStatusMap[booking.refundStatus] || booking.refundStatus,
+        booking.refundAmount || 0,
+        booking.cancelReason || '',
+      ]
+    })
+
+    const csvContent = [
+      header.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(',')),
+    ].join('\n')
+
+    const filename = `bookings_${dayjs().format('YYYYMMDD_HHmmss')}.csv`
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.write('\uFEFF')
+    res.write(csvContent)
+    res.end()
+  } catch (error) {
+    next(error)
+  }
+}
+
 export async function checkAvailability(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { roomId, date, duration = 30 } = req.query
@@ -490,7 +757,7 @@ export async function checkAvailability(req: Request, res: Response, next: NextF
 
 export async function calculateFee(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { roomId, duration, couponCode } = req.query
+    const { roomId, duration, couponCode, deductionType = 'none', timesCardId } = req.query
 
     if (!roomId || !duration) {
       throw new AppError('房间ID和时长不能为空', 400)
@@ -505,7 +772,15 @@ export async function calculateFee(req: AuthRequest, res: Response, next: NextFu
     const user = dataStore.users.find(u => u.id === userId)
     const memberLevel = user?.memberLevel || MemberLevel.NORMAL
 
-    const feeDetail = calculateFeeDetail(room.pricePerHour, Number(duration), memberLevel, couponCode as string)
+    const feeDetail = calculateFeeDetail(
+      room.pricePerHour,
+      Number(duration),
+      memberLevel,
+      couponCode as string,
+      deductionType as any,
+      timesCardId as string,
+      userId
+    )
 
     res.json({
       code: 200,
@@ -524,21 +799,47 @@ export async function calculateFee(req: AuthRequest, res: Response, next: NextFu
 
 export async function getConflictCalendarApi(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { roomId, startDate, endDate } = req.query
+    const { roomId, roomIds, startDate, endDate } = req.query
 
-    if (!roomId || !startDate || !endDate) {
-      throw new AppError('房间ID、开始日期和结束日期不能为空', 400)
-    }
-
-    const room = dataStore.rooms.find(r => r.id === roomId as string)
-    if (!room) {
-      throw new AppError('琴房不存在', 404)
+    if (!startDate || !endDate) {
+      throw new AppError('开始日期和结束日期不能为空', 400)
     }
 
     const start = dayjs(startDate as string)
     const end = dayjs(endDate as string)
     if (end.diff(start, 'day') > 90) {
       throw new AppError('日期范围不能超过90天', 400)
+    }
+
+    if (roomIds && typeof roomIds === 'string') {
+      const ids = roomIds.split(',').filter(Boolean)
+      if (ids.length > 0) {
+        const roomsCalendar = getMultiRoomConflictCalendar(
+          ids,
+          startDate as string,
+          endDate as string
+        )
+
+        res.json({
+          code: 200,
+          message: '获取成功',
+          data: {
+            startDate,
+            endDate,
+            rooms: roomsCalendar,
+          },
+        })
+        return
+      }
+    }
+
+    if (!roomId) {
+      throw new AppError('房间ID不能为空', 400)
+    }
+
+    const room = dataStore.rooms.find(r => r.id === roomId as string)
+    if (!room) {
+      throw new AppError('琴房不存在', 404)
     }
 
     const calendar = getConflictCalendar(

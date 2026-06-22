@@ -1,10 +1,12 @@
 import dayjs from 'dayjs'
 import isBetween from 'dayjs/plugin/isBetween'
 import { dataStore } from '../data/store'
-import { BookingStatus } from '../entities/Booking'
+import { BookingStatus, RefundStatus, RefundRule, DeductionType } from '../entities/Booking'
 import { ClosureStatus, ClosureType } from '../entities/TemporaryClosure'
 import { MemberLevel, MemberDiscounts } from '../entities/MemberLevel'
 import { CouponType } from '../entities/Coupon'
+import { TimesCardStatus } from '../entities/Wallet'
+import config from '../config'
 
 dayjs.extend(isBetween)
 
@@ -250,81 +252,6 @@ export function validateTimeRange(
   return { valid: true }
 }
 
-export interface FeeCalculation {
-  originalAmount: number
-  memberLevel: MemberLevel
-  memberDiscountRate: number
-  memberDiscountAmount: number
-  afterMemberDiscount: number
-  couponId?: string
-  couponCode?: string
-  couponName?: string
-  couponType?: CouponType
-  couponValue?: number
-  couponDiscountAmount: number
-  totalAmount: number
-}
-
-export function calculateFeeDetail(
-  pricePerHour: number,
-  durationMinutes: number,
-  memberLevel: MemberLevel,
-  couponCode?: string
-): FeeCalculation {
-  const originalAmount = calculatePrice(pricePerHour, durationMinutes)
-  const memberDiscountRate = MemberDiscounts[memberLevel] || 1.0
-  const memberDiscountAmount = Math.round((originalAmount * (1 - memberDiscountRate)) * 100) / 100
-  const afterMemberDiscount = Math.round((originalAmount - memberDiscountAmount) * 100) / 100
-
-  let couponDiscountAmount = 0
-  let couponId: string | undefined
-  let couponName: string | undefined
-  let couponType: CouponType | undefined
-  let couponValue: number | undefined
-
-  if (couponCode) {
-    const today = dayjs().format('YYYY-MM-DD')
-    const coupon = dataStore.coupons.find(
-      c => c.code === couponCode && c.isActive && c.validFrom <= today && c.validUntil >= today && c.usedCount < c.usageLimit
-    )
-
-    if (coupon) {
-      couponId = coupon.id
-      couponName = coupon.name
-      couponType = coupon.type
-      couponValue = coupon.value
-
-      if (afterMemberDiscount >= coupon.minAmount) {
-        if (coupon.type === CouponType.PERCENTAGE) {
-          couponDiscountAmount = Math.round(afterMemberDiscount * (coupon.value / 100) * 100) / 100
-          if (coupon.maxDiscount && couponDiscountAmount > coupon.maxDiscount) {
-            couponDiscountAmount = coupon.maxDiscount
-          }
-        } else if (coupon.type === CouponType.FIXED) {
-          couponDiscountAmount = Math.min(coupon.value, afterMemberDiscount)
-        }
-      }
-    }
-  }
-
-  const totalAmount = Math.max(0, Math.round((afterMemberDiscount - couponDiscountAmount) * 100) / 100)
-
-  return {
-    originalAmount,
-    memberLevel,
-    memberDiscountRate,
-    memberDiscountAmount,
-    afterMemberDiscount,
-    couponId,
-    couponCode,
-    couponName,
-    couponType,
-    couponValue,
-    couponDiscountAmount,
-    totalAmount,
-  }
-}
-
 export interface CalendarDaySlot {
   startTime: string
   endTime: string
@@ -423,4 +350,312 @@ export function getConflictCalendar(
   }
 
   return result
+}
+
+export interface RoomCalendarData {
+  roomId: string
+  roomName: string
+  calendar: CalendarDay[]
+}
+
+export function getMultiRoomConflictCalendar(
+  roomIds: string[],
+  startDate: string,
+  endDate: string
+): RoomCalendarData[] {
+  const result: RoomCalendarData[] = []
+
+  for (const roomId of roomIds) {
+    const room = dataStore.rooms.find(r => r.id === roomId && r.isActive)
+    if (!room) continue
+
+    const calendar = getConflictCalendar(roomId, startDate, endDate)
+    result.push({
+      roomId,
+      roomName: room.name,
+      calendar,
+    })
+  }
+
+  return result
+}
+
+export interface RefundCalculation {
+  refundRule: RefundRule
+  refundable: boolean
+  refundAmount: number
+  minutesBeforeStart: number
+  reason: string
+}
+
+export function calculateRefund(
+  booking: {
+    bookingDate: string
+    startTime: string
+    totalAmount: number
+    status: BookingStatus
+    deductionType: DeductionType
+    deductionAmount: number
+    paidAmount: number
+  }
+): RefundCalculation {
+  const bookingStart = dayjs(`${booking.bookingDate} ${booking.startTime}`)
+  const now = dayjs()
+  const minutesBeforeStart = bookingStart.diff(now, 'minute')
+
+  const { fullRefundBeforeMinutes, partialRefundBeforeMinutes, partialRefundRate, noRefundAfterStart } = config.refund
+
+  if (booking.status === BookingStatus.CHECKED_IN || booking.status === BookingStatus.COMPLETED) {
+    return {
+      refundRule: RefundRule.NO_REFUND,
+      refundable: false,
+      refundAmount: 0,
+      minutesBeforeStart,
+      reason: '已核销的预约不能退款',
+    }
+  }
+
+  if (booking.status === BookingStatus.CANCELLED) {
+    return {
+      refundRule: RefundRule.NO_REFUND,
+      refundable: false,
+      refundAmount: 0,
+      minutesBeforeStart,
+      reason: '该预约已取消',
+    }
+  }
+
+  if (noRefundAfterStart && minutesBeforeStart <= 0) {
+    return {
+      refundRule: RefundRule.NO_REFUND,
+      refundable: false,
+      refundAmount: 0,
+      minutesBeforeStart,
+      reason: '已过开场时间，不能退款',
+    }
+  }
+
+  const refundableAmount = booking.deductionType === DeductionType.BALANCE
+    ? booking.deductionAmount + (booking.paidAmount || 0)
+    : booking.paidAmount
+
+  if (minutesBeforeStart >= fullRefundBeforeMinutes) {
+    return {
+      refundRule: RefundRule.FULL_REFUND,
+      refundable: true,
+      refundAmount: Math.round(refundableAmount * 100) / 100,
+      minutesBeforeStart,
+      reason: `开场前 ${fullRefundBeforeMinutes} 分钟以上，全额退款`,
+    }
+  }
+
+  if (minutesBeforeStart >= partialRefundBeforeMinutes) {
+    const refundAmount = Math.round(refundableAmount * partialRefundRate * 100) / 100
+    return {
+      refundRule: RefundRule.PARTIAL_REFUND,
+      refundable: true,
+      refundAmount,
+      minutesBeforeStart,
+      reason: `开场前 ${partialRefundBeforeMinutes}-${fullRefundBeforeMinutes} 分钟，退款 ${partialRefundRate * 100}%`,
+    }
+  }
+
+  return {
+    refundRule: RefundRule.NO_REFUND,
+    refundable: false,
+    refundAmount: 0,
+    minutesBeforeStart,
+    reason: `开场前不足 ${partialRefundBeforeMinutes} 分钟，不予退款`,
+  }
+}
+
+export interface BookingStats {
+  startDate: string
+  endDate: string
+  totalBookings: number
+  totalOriginalAmount: number
+  totalMemberDiscount: number
+  totalCouponDiscount: number
+  totalPaidAmount: number
+  totalRefundAmount: number
+  checkedInCount: number
+  completedCount: number
+  cancelledCount: number
+  noShowCount: number
+  avgBookingDuration: number
+  totalRevenue: number
+}
+
+export function calculateBookingStats(
+  startDate: string,
+  endDate: string,
+  roomId?: string
+): BookingStats {
+  let bookings = dataStore.bookings.filter(
+    b => b.bookingDate >= startDate && b.bookingDate <= endDate
+  )
+
+  if (roomId) {
+    bookings = bookings.filter(b => b.roomId === roomId)
+  }
+
+  const stats: BookingStats = {
+    startDate,
+    endDate,
+    totalBookings: bookings.length,
+    totalOriginalAmount: 0,
+    totalMemberDiscount: 0,
+    totalCouponDiscount: 0,
+    totalPaidAmount: 0,
+    totalRefundAmount: 0,
+    checkedInCount: 0,
+    completedCount: 0,
+    cancelledCount: 0,
+    noShowCount: 0,
+    avgBookingDuration: 0,
+    totalRevenue: 0,
+  }
+
+  for (const booking of bookings) {
+    stats.totalOriginalAmount += booking.originalAmount || booking.totalAmount
+    stats.totalMemberDiscount += booking.memberDiscountAmount || 0
+    stats.totalCouponDiscount += booking.couponDiscountAmount || 0
+    stats.totalPaidAmount += booking.paidAmount || 0
+    stats.totalRefundAmount += booking.refundAmount || 0
+
+    if (booking.status === BookingStatus.CHECKED_IN) stats.checkedInCount++
+    if (booking.status === BookingStatus.COMPLETED) stats.completedCount++
+    if (booking.status === BookingStatus.CANCELLED) stats.cancelledCount++
+    if (booking.status === BookingStatus.NO_SHOW) stats.noShowCount++
+
+    stats.avgBookingDuration += booking.duration
+  }
+
+  if (bookings.length > 0) {
+    stats.avgBookingDuration = Math.round(stats.avgBookingDuration / bookings.length * 100) / 100
+  }
+
+  stats.totalRevenue = Math.round((stats.totalPaidAmount - stats.totalRefundAmount) * 100) / 100
+
+  return stats
+}
+
+export interface FeeCalculation {
+  originalAmount: number
+  memberLevel: MemberLevel
+  memberDiscountRate: number
+  memberDiscountAmount: number
+  afterMemberDiscount: number
+  couponId?: string
+  couponCode?: string
+  couponName?: string
+  couponType?: CouponType
+  couponValue?: number
+  couponDiscountAmount: number
+  totalAmount: number
+  deductionType: DeductionType
+  deductionAmount: number
+  timesCardId?: string
+  timesCardName?: string
+  timesCardRemaining?: number
+  balanceBefore?: number
+  balanceAfter?: number
+  finalPayAmount: number
+}
+
+export function calculateFeeDetail(
+  pricePerHour: number,
+  durationMinutes: number,
+  memberLevel: MemberLevel,
+  couponCode?: string,
+  deductionType: DeductionType = DeductionType.NONE,
+  timesCardId?: string,
+  userId?: string
+): FeeCalculation {
+  const originalAmount = calculatePrice(pricePerHour, durationMinutes)
+  const memberDiscountRate = MemberDiscounts[memberLevel] || 1.0
+  const memberDiscountAmount = Math.round((originalAmount * (1 - memberDiscountRate)) * 100) / 100
+  const afterMemberDiscount = Math.round((originalAmount - memberDiscountAmount) * 100) / 100
+
+  let couponDiscountAmount = 0
+  let couponId: string | undefined
+  let couponName: string | undefined
+  let couponType: CouponType | undefined
+  let couponValue: number | undefined
+
+  if (couponCode) {
+    const today = dayjs().format('YYYY-MM-DD')
+    const coupon = dataStore.coupons.find(
+      c => c.code === couponCode && c.isActive && c.validFrom <= today && c.validUntil >= today && c.usedCount < c.usageLimit
+    )
+
+    if (coupon && afterMemberDiscount >= coupon.minAmount) {
+      couponId = coupon.id
+      couponName = coupon.name
+      couponType = coupon.type
+      couponValue = coupon.value
+
+      if (coupon.type === CouponType.PERCENTAGE) {
+        couponDiscountAmount = Math.round(afterMemberDiscount * (coupon.value / 100) * 100) / 100
+        if (coupon.maxDiscount && couponDiscountAmount > coupon.maxDiscount) {
+          couponDiscountAmount = coupon.maxDiscount
+        }
+      } else if (coupon.type === CouponType.FIXED) {
+        couponDiscountAmount = Math.min(coupon.value, afterMemberDiscount)
+      }
+    }
+  }
+
+  const totalAmount = Math.max(0, Math.round((afterMemberDiscount - couponDiscountAmount) * 100) / 100)
+
+  let finalDeductionAmount = 0
+  let usedTimesCardId: string | undefined
+  let usedTimesCardName: string | undefined
+  let timesCardRemaining: number | undefined
+  let balanceBefore: number | undefined
+  let balanceAfter: number | undefined
+
+  if (deductionType === DeductionType.TIMES_CARD && timesCardId && userId) {
+    const timesCard = dataStore.timesCards.find(
+      tc => tc.id === timesCardId && tc.userId === userId && tc.status === TimesCardStatus.ACTIVE
+    )
+    if (timesCard && timesCard.remainingTimes >= 1) {
+      finalDeductionAmount = totalAmount
+      usedTimesCardId = timesCard.id
+      usedTimesCardName = timesCard.name
+      timesCardRemaining = timesCard.remainingTimes - 1
+    }
+  } else if (deductionType === DeductionType.BALANCE && userId) {
+    const wallet = dataStore.wallets.find(w => w.userId === userId)
+    if (wallet) {
+      balanceBefore = wallet.balance
+      finalDeductionAmount = Math.min(wallet.balance, totalAmount)
+      balanceAfter = Math.round((wallet.balance - finalDeductionAmount) * 100) / 100
+    }
+  }
+
+  const finalPayAmount = Math.max(0, Math.round((totalAmount - finalDeductionAmount) * 100) / 100)
+
+  return {
+    originalAmount,
+    memberLevel,
+    memberDiscountRate,
+    memberDiscountAmount,
+    afterMemberDiscount,
+    couponId,
+    couponCode,
+    couponName,
+    couponType,
+    couponValue,
+    couponDiscountAmount,
+    totalAmount,
+    deductionType: finalDeductionAmount > 0 ? deductionType : DeductionType.NONE,
+    deductionAmount: finalDeductionAmount,
+    timesCardId: usedTimesCardId,
+    timesCardName: usedTimesCardName,
+    timesCardRemaining,
+    balanceBefore,
+    balanceAfter,
+    finalPayAmount,
+  }
 }
