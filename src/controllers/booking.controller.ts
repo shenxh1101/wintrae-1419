@@ -112,14 +112,8 @@ export async function createBooking(req: AuthRequest, res: Response, next: NextF
       userId
     )
 
-    if (feeDetail.deductionType === DeductionType.BALANCE && feeDetail.balanceBefore !== undefined) {
-      if (feeDetail.balanceBefore < feeDetail.deductionAmount) {
-        throw new AppError('余额不足，请选择其他支付方式', 400)
-      }
-    }
-
-    if (feeDetail.deductionType === DeductionType.TIMES_CARD && !feeDetail.timesCardId) {
-      throw new AppError('次卡无效或次数不足', 400)
+    if (feeDetail.deductionType !== DeductionType.NONE && feeDetail.deductionError) {
+      throw new AppError(feeDetail.deductionError, 400)
     }
 
     if (feeDetail.deductionType === DeductionType.BALANCE) {
@@ -288,15 +282,15 @@ export async function cancelBooking(req: AuthRequest, res: Response, next: NextF
       throw new AppError('该预约已取消', 400)
     }
 
-    const refundCalc: RefundCalculation = calculateRefund(booking)
-
-    if (!refundCalc.refundable) {
-      throw new AppError(refundCalc.reason, 400)
+    if (booking.status === BookingStatus.CHECKED_IN || booking.status === BookingStatus.COMPLETED) {
+      throw new AppError('已核销或已完成的预约不能取消', 400)
     }
+
+    const refundCalc: RefundCalculation = calculateRefund(booking)
 
     if (booking.deductionType === DeductionType.BALANCE && refundCalc.refundAmount > 0) {
       dataStore.refundWallet(booking.userId, refundCalc.refundAmount)
-    } else if (booking.deductionType === DeductionType.TIMES_CARD && booking.timesCardId && (booking.timesCardConsumed || 0) > 0) {
+    } else if (booking.deductionType === DeductionType.TIMES_CARD && booking.timesCardId && (booking.timesCardConsumed || 0) > 0 && refundCalc.refundAmount > 0) {
       dataStore.refundTimesCard(booking.timesCardId, booking.timesCardConsumed)
     }
 
@@ -309,9 +303,9 @@ export async function cancelBooking(req: AuthRequest, res: Response, next: NextF
 
     booking.status = BookingStatus.CANCELLED
     booking.cancelledAt = new Date()
-    booking.cancelReason = reason
+    booking.cancelReason = reason || refundCalc.reason
     booking.refundStatus = refundCalc.refundAmount > 0
-      ? (refundCalc.refundAmount === booking.paidAmount && booking.deductionType === DeductionType.NONE
+      ? (refundCalc.refundAmount >= (booking.deductionAmount || 0) + (booking.paidAmount || 0)
           ? RefundStatus.REFUNDED
           : RefundStatus.PARTIAL_REFUNDED)
       : RefundStatus.NONE
@@ -781,6 +775,10 @@ export async function calculateFee(req: AuthRequest, res: Response, next: NextFu
       timesCardId as string,
       userId
     )
+
+    if (feeDetail.deductionType !== DeductionType.NONE && feeDetail.deductionError) {
+      throw new AppError(feeDetail.deductionError, 400)
+    }
 
     res.json({
       code: 200,

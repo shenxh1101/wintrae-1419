@@ -523,7 +523,7 @@ export function calculateBookingStats(
     stats.totalPaidAmount += booking.paidAmount || 0
     stats.totalRefundAmount += booking.refundAmount || 0
 
-    if (booking.status === BookingStatus.CHECKED_IN) stats.checkedInCount++
+    if (booking.status === BookingStatus.CHECKED_IN || booking.status === BookingStatus.COMPLETED) stats.checkedInCount++
     if (booking.status === BookingStatus.COMPLETED) stats.completedCount++
     if (booking.status === BookingStatus.CANCELLED) stats.cancelledCount++
     if (booking.status === BookingStatus.NO_SHOW) stats.noShowCount++
@@ -561,6 +561,7 @@ export interface FeeCalculation {
   balanceBefore?: number
   balanceAfter?: number
   finalPayAmount: number
+  deductionError?: string
 }
 
 export function calculateFeeDetail(
@@ -614,20 +615,42 @@ export function calculateFeeDetail(
   let timesCardRemaining: number | undefined
   let balanceBefore: number | undefined
   let balanceAfter: number | undefined
+  let deductionError: string | undefined
 
   if (deductionType === DeductionType.TIMES_CARD && timesCardId && userId) {
-    const timesCard = dataStore.timesCards.find(
-      tc => tc.id === timesCardId && tc.userId === userId && tc.status === TimesCardStatus.ACTIVE
-    )
-    if (timesCard && timesCard.remainingTimes >= 1) {
-      finalDeductionAmount = totalAmount
-      usedTimesCardId = timesCard.id
-      usedTimesCardName = timesCard.name
-      timesCardRemaining = timesCard.remainingTimes - 1
+    const timesCard = dataStore.timesCards.find(tc => tc.id === timesCardId)
+    if (!timesCard) {
+      deductionError = '次卡不存在'
+    } else if (timesCard.userId !== userId) {
+      deductionError = '次卡不属于当前用户'
+    } else if (timesCard.status === TimesCardStatus.USED_UP) {
+      deductionError = '次卡次数已用完'
+    } else if (timesCard.status === TimesCardStatus.EXPIRED) {
+      deductionError = '次卡已过期'
+    } else if (timesCard.status !== TimesCardStatus.ACTIVE) {
+      deductionError = '次卡状态无效'
+    } else {
+      const today = dayjs().format('YYYY-MM-DD')
+      if (timesCard.validFrom && timesCard.validFrom > today) {
+        deductionError = '次卡尚未生效'
+      } else if (timesCard.validUntil && timesCard.validUntil < today) {
+        deductionError = '次卡已过期'
+      } else if (timesCard.remainingTimes < 1) {
+        deductionError = '次卡次数不足'
+      } else {
+        finalDeductionAmount = totalAmount
+        usedTimesCardId = timesCard.id
+        usedTimesCardName = timesCard.name
+        timesCardRemaining = timesCard.remainingTimes - 1
+      }
     }
   } else if (deductionType === DeductionType.BALANCE && userId) {
     const wallet = dataStore.wallets.find(w => w.userId === userId)
-    if (wallet) {
+    if (!wallet) {
+      deductionError = '钱包不存在'
+    } else if (wallet.balance <= 0) {
+      deductionError = '余额为0'
+    } else {
       balanceBefore = wallet.balance
       finalDeductionAmount = Math.min(wallet.balance, totalAmount)
       balanceAfter = Math.round((wallet.balance - finalDeductionAmount) * 100) / 100
@@ -649,7 +672,7 @@ export function calculateFeeDetail(
     couponValue,
     couponDiscountAmount,
     totalAmount,
-    deductionType: finalDeductionAmount > 0 ? deductionType : DeductionType.NONE,
+    deductionType,
     deductionAmount: finalDeductionAmount,
     timesCardId: usedTimesCardId,
     timesCardName: usedTimesCardName,
@@ -657,5 +680,6 @@ export function calculateFeeDetail(
     balanceBefore,
     balanceAfter,
     finalPayAmount,
+    deductionError,
   }
 }
