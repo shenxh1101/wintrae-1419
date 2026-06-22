@@ -1,9 +1,11 @@
 import { Request, Response, NextFunction } from 'express'
 import { dataStore } from '../data/store'
 import { BookingStatus } from '../entities/Booking'
+import { MemberLevel } from '../entities/MemberLevel'
+import { UserRole } from '../entities/User'
 import { AppError } from '../middleware/error'
 import { AuthRequest } from '../middleware/auth'
-import { isTimeSlotAvailable, calculatePrice, getAvailableTimeSlots, validateTimeRange } from '../services/booking.service'
+import { isTimeSlotAvailable, calculatePrice, getAvailableTimeSlots, validateTimeRange, calculateFeeDetail, getConflictCalendar } from '../services/booking.service'
 import dayjs from 'dayjs'
 
 export interface CreateBookingDto {
@@ -13,6 +15,7 @@ export interface CreateBookingDto {
   endTime: string
   duration: number
   peopleCount: number
+  couponCode?: string
 }
 
 export interface RescheduleBookingDto {
@@ -36,7 +39,7 @@ function minutesToTime(minutes: number): string {
 export async function createBooking(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const userId = req.user?.userId
-    const { roomId, bookingDate, startTime, endTime, duration, peopleCount } = req.body as CreateBookingDto
+    const { roomId, bookingDate, startTime, endTime, duration, peopleCount, couponCode } = req.body as CreateBookingDto
 
     if (!roomId || !bookingDate || !startTime || !endTime || !duration) {
       throw new AppError('请填写完整的预约信息', 400)
@@ -74,7 +77,9 @@ export async function createBooking(req: AuthRequest, res: Response, next: NextF
       throw new AppError(`该时段不可用：${availability.reason}`, 400)
     }
 
-    const totalAmount = calculatePrice(room.pricePerHour, duration)
+    const user = dataStore.users.find(u => u.id === userId)
+    const memberLevel = user?.memberLevel || MemberLevel.NORMAL
+    const feeDetail = calculateFeeDetail(room.pricePerHour, duration, memberLevel, couponCode)
 
     const booking = dataStore.addBooking({
       userId: userId!,
@@ -85,11 +90,25 @@ export async function createBooking(req: AuthRequest, res: Response, next: NextF
       duration,
       peopleCount: peopleCount || 1,
       status: BookingStatus.CONFIRMED,
-      totalAmount,
-      paidAmount: totalAmount,
+      originalAmount: feeDetail.originalAmount,
+      memberDiscountAmount: feeDetail.memberDiscountAmount,
+      couponDiscountAmount: feeDetail.couponDiscountAmount,
+      totalAmount: feeDetail.totalAmount,
+      paidAmount: feeDetail.totalAmount,
+      memberLevel,
+      couponId: feeDetail.couponId,
+      couponCode: feeDetail.couponCode,
       reminderSent: false,
       overtimeReminderSent: false,
     })
+
+    if (feeDetail.couponId) {
+      const coupon = dataStore.coupons.find(c => c.id === feeDetail.couponId)
+      if (coupon) {
+        coupon.usedCount++
+        dataStore.markUpdated()
+      }
+    }
 
     const roomInfo = dataStore.rooms.find(r => r.id === roomId)
     const result = { ...booking, room: roomInfo }
@@ -154,11 +173,21 @@ export async function rescheduleBooking(req: AuthRequest, res: Response, next: N
       duration: booking.duration,
     }
 
+    const originalAmount = calculatePrice(room.pricePerHour, newDuration)
+    const memberLevel = (booking.memberLevel as MemberLevel) || MemberLevel.NORMAL
+    const feeDetail = calculateFeeDetail(room.pricePerHour, newDuration, memberLevel)
+
     booking.bookingDate = newBookingDate
     booking.startTime = newStartTime
     booking.endTime = newEndTime
     booking.duration = newDuration
-    booking.totalAmount = calculatePrice(room.pricePerHour, newDuration)
+    booking.originalAmount = originalAmount
+    booking.memberDiscountAmount = feeDetail.memberDiscountAmount
+    booking.couponDiscountAmount = 0
+    booking.couponId = undefined
+    booking.couponCode = undefined
+    booking.totalAmount = feeDetail.totalAmount
+    booking.paidAmount = feeDetail.totalAmount
     booking.updatedAt = new Date()
     booking.previousBooking = originalBooking
 
@@ -265,12 +294,16 @@ export async function extendBooking(req: AuthRequest, res: Response, next: NextF
       throw new AppError(`该时段不可用：${availability.reason}`, 400)
     }
 
-    const extendPrice = calculatePrice(room.pricePerHour, extendDuration)
+    const extendOriginalPrice = calculatePrice(room.pricePerHour, extendDuration)
+    const memberLevel = (booking.memberLevel as MemberLevel) || MemberLevel.NORMAL
+    const extendFeeDetail = calculateFeeDetail(room.pricePerHour, extendDuration, memberLevel)
 
     booking.endTime = newEndTime
     booking.duration += extendDuration
-    booking.totalAmount = Math.round((booking.totalAmount + extendPrice) * 100) / 100
-    booking.paidAmount = Math.round((booking.paidAmount + extendPrice) * 100) / 100
+    booking.originalAmount = Math.round((booking.originalAmount + extendOriginalPrice) * 100) / 100
+    booking.memberDiscountAmount = Math.round((booking.memberDiscountAmount + extendFeeDetail.memberDiscountAmount) * 100) / 100
+    booking.totalAmount = Math.round((booking.totalAmount + extendFeeDetail.totalAmount) * 100) / 100
+    booking.paidAmount = Math.round((booking.paidAmount + extendFeeDetail.totalAmount) * 100) / 100
     booking.updatedAt = new Date()
 
     dataStore.markUpdated()
@@ -280,7 +313,8 @@ export async function extendBooking(req: AuthRequest, res: Response, next: NextF
       message: '续时成功',
       data: {
         booking,
-        extendPrice,
+        extendPrice: extendFeeDetail.totalAmount,
+        extendFeeDetail,
       },
     })
   } catch (error) {
@@ -303,7 +337,12 @@ export async function getBookingById(req: AuthRequest, res: Response, next: Next
     }
 
     const room = dataStore.rooms.find(r => r.id === booking.roomId)
-    const result = { ...booking, room }
+    const user = dataStore.users.find(u => u.id === booking.userId)
+    const result = {
+      ...booking,
+      room,
+      userInfo: user ? { id: user.id, phone: user.phone, nickname: user.nickname, memberLevel: user.memberLevel } : undefined,
+    }
 
     res.json({
       code: 200,
@@ -352,6 +391,75 @@ export async function getMyBookings(req: AuthRequest, res: Response, next: NextF
   }
 }
 
+export async function getAllBookings(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (req.user?.role !== UserRole.ADMIN) {
+      throw new AppError('无权限访问，需要管理员权限', 403)
+    }
+
+    const { page = 1, pageSize = 10, status, roomId, bookingDate, startDate, endDate, phone } = req.query
+
+    let bookings = [...dataStore.bookings]
+
+    if (status) {
+      bookings = bookings.filter(b => b.status === status)
+    }
+
+    if (roomId) {
+      bookings = bookings.filter(b => b.roomId === roomId)
+    }
+
+    if (bookingDate) {
+      bookings = bookings.filter(b => b.bookingDate === bookingDate)
+    }
+
+    if (startDate) {
+      bookings = bookings.filter(b => b.bookingDate >= startDate)
+    }
+
+    if (endDate) {
+      bookings = bookings.filter(b => b.bookingDate <= endDate)
+    }
+
+    if (phone) {
+      const phoneStr = phone as string
+      const matchedUserIds = dataStore.users
+        .filter(u => u.phone.includes(phoneStr))
+        .map(u => u.id)
+      bookings = bookings.filter(b => matchedUserIds.includes(b.userId))
+    }
+
+    bookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+
+    const total = bookings.length
+    const skip = (Number(page) - 1) * Number(pageSize)
+    const list = bookings.slice(skip, skip + Number(pageSize))
+
+    const result = list.map(booking => {
+      const room = dataStore.rooms.find(r => r.id === booking.roomId)
+      const user = dataStore.users.find(u => u.id === booking.userId)
+      return {
+        ...booking,
+        room,
+        userInfo: user ? { id: user.id, phone: user.phone, nickname: user.nickname, memberLevel: user.memberLevel } : undefined,
+      }
+    })
+
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: {
+        list: result,
+        total,
+        page: Number(page),
+        pageSize: Number(pageSize),
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
 export async function checkAvailability(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { roomId, date, duration = 30 } = req.query
@@ -380,9 +488,9 @@ export async function checkAvailability(req: Request, res: Response, next: NextF
   }
 }
 
-export async function calculateFee(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function calculateFee(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { roomId, duration } = req.query
+    const { roomId, duration, couponCode } = req.query
 
     if (!roomId || !duration) {
       throw new AppError('房间ID和时长不能为空', 400)
@@ -393,7 +501,11 @@ export async function calculateFee(req: Request, res: Response, next: NextFuncti
       throw new AppError('琴房不存在', 404)
     }
 
-    const totalAmount = calculatePrice(room.pricePerHour, Number(duration))
+    const userId = req.user?.userId
+    const user = dataStore.users.find(u => u.id === userId)
+    const memberLevel = user?.memberLevel || MemberLevel.NORMAL
+
+    const feeDetail = calculateFeeDetail(room.pricePerHour, Number(duration), memberLevel, couponCode as string)
 
     res.json({
       code: 200,
@@ -402,7 +514,48 @@ export async function calculateFee(req: Request, res: Response, next: NextFuncti
         roomId,
         duration: Number(duration),
         pricePerHour: room.pricePerHour,
-        totalAmount,
+        ...feeDetail,
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function getConflictCalendarApi(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { roomId, startDate, endDate } = req.query
+
+    if (!roomId || !startDate || !endDate) {
+      throw new AppError('房间ID、开始日期和结束日期不能为空', 400)
+    }
+
+    const room = dataStore.rooms.find(r => r.id === roomId as string)
+    if (!room) {
+      throw new AppError('琴房不存在', 404)
+    }
+
+    const start = dayjs(startDate as string)
+    const end = dayjs(endDate as string)
+    if (end.diff(start, 'day') > 90) {
+      throw new AppError('日期范围不能超过90天', 400)
+    }
+
+    const calendar = getConflictCalendar(
+      roomId as string,
+      startDate as string,
+      endDate as string
+    )
+
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: {
+        roomId,
+        roomName: room.name,
+        startDate,
+        endDate,
+        calendar,
       },
     })
   } catch (error) {

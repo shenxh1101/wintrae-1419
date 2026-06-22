@@ -76,13 +76,18 @@ export async function getUnavailableDates(req: Request, res: Response, next: Nex
 
 export async function deleteUnavailableDate(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { id } = req.params
+    const { roomId, id } = req.params
 
-    const index = dataStore.unavailableDates.findIndex(ud => ud.id === id)
-    if (index === -1) {
+    const record = dataStore.unavailableDates.find(ud => ud.id === id)
+    if (!record) {
       throw new AppError('记录不存在', 404)
     }
 
+    if (record.roomId !== roomId) {
+      throw new AppError('该记录不属于当前房间，无权删除', 403)
+    }
+
+    const index = dataStore.unavailableDates.indexOf(record)
     dataStore.unavailableDates.splice(index, 1)
     dataStore.markUpdated()
 

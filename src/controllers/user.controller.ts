@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import { dataStore } from '../data/store'
 import { UserRole, User } from '../entities/User'
+import { MemberLevel } from '../entities/MemberLevel'
 import { generateToken } from '../utils/auth'
 import { AppError } from '../middleware/error'
 import { AuthRequest } from '../middleware/auth'
@@ -43,6 +44,7 @@ export async function register(req: Request, res: Response, next: NextFunction):
       nickname: nickname || `用户${phone.slice(-4)}`,
       email,
       role: UserRole.USER,
+      memberLevel: MemberLevel.NORMAL,
       isActive: true,
     })
 
@@ -63,6 +65,7 @@ export async function register(req: Request, res: Response, next: NextFunction):
           nickname: user.nickname,
           email: user.email,
           role: user.role,
+          memberLevel: user.memberLevel,
         },
       },
     })

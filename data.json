@@ -1,29 +1,31 @@
 {
   "users": [
     {
-      "id": "3355c0ee-8bd6-4930-ab83-69f6ec8c48ad",
+      "id": "98bab558-8659-4444-81ee-53f79dc17c1d",
       "phone": "13800138000",
-      "password": "$2a$10$OkonTsSGKQr9tOcxzIIBNuJQZ1kR5.9kdsRk3RdKPvWFF3/P/rAVO",
+      "password": "$2a$10$x.hiH1Cqe5HtzHKb5ZcKkOPD4GRt6cyb/I7UpSztNp3Hxqqm1wCpe",
       "nickname": "超级管理员",
       "role": "admin",
+      "memberLevel": "normal",
       "isActive": true,
-      "createdAt": "2026-06-22T00:02:12.089Z",
-      "updatedAt": "2026-06-22T00:02:12.089Z"
+      "createdAt": "2026-06-22T00:10:39.980Z",
+      "updatedAt": "2026-06-22T00:10:39.980Z"
     },
     {
-      "id": "b7c3b11c-0f79-42ec-98a0-d720e2a97a36",
+      "id": "c88fdf93-3348-4926-85c3-3d43d21c52c8",
       "phone": "13900139000",
-      "password": "$2a$10$c3cyyMAN3.7mK78g89V7IOEG.tB2OQIbbv4bMv7msTPaLSCne4BKG",
+      "password": "$2a$10$0XnzxGQV305bv3qHtzOGk.1soqLAOm5v7E0nY2rwW.76Kdo6uwv4i",
       "nickname": "测试用户",
       "role": "user",
+      "memberLevel": "gold",
       "isActive": true,
-      "createdAt": "2026-06-22T00:02:12.163Z",
-      "updatedAt": "2026-06-22T00:02:12.163Z"
+      "createdAt": "2026-06-22T00:10:40.058Z",
+      "updatedAt": "2026-06-22T00:10:40.058Z"
     }
   ],
   "rooms": [
     {
-      "id": "27431109-9233-4b82-b60d-67d0407b7447",
+      "id": "5f6705bb-6665-4e15-8f7e-3feedc7dfaf7",
       "name": "A1 豪华钢琴房",
       "capacity": 2,
       "instruments": [
@@ -35,11 +37,11 @@
       "description": "配备施坦威三角钢琴，专业隔音设计",
       "isActive": true,
       "reviewCount": 0,
-      "createdAt": "2026-06-22T00:02:12.163Z",
-      "updatedAt": "2026-06-22T00:02:12.163Z"
+      "createdAt": "2026-06-22T00:10:40.058Z",
+      "updatedAt": "2026-06-22T00:10:40.058Z"
     },
     {
-      "id": "2e6ad410-122a-4a58-ba80-434154e890ae",
+      "id": "76953278-6f14-439d-93be-340cc41f190b",
       "name": "A2 标准钢琴房",
       "capacity": 2,
       "instruments": [
@@ -51,11 +53,11 @@
       "description": "雅马哈立式钢琴，适合练习",
       "isActive": true,
       "reviewCount": 0,
-      "createdAt": "2026-06-22T00:02:12.163Z",
-      "updatedAt": "2026-06-22T00:02:12.163Z"
+      "createdAt": "2026-06-22T00:10:40.058Z",
+      "updatedAt": "2026-06-22T00:10:40.058Z"
     },
     {
-      "id": "0f8643f8-2f2e-4636-be7c-13ae0c431231",
+      "id": "0f2edd8b-6860-4b8e-9995-1be58543fbe5",
       "name": "B1 综合琴房",
       "capacity": 4,
       "instruments": [
@@ -69,11 +71,11 @@
       "description": "小型合奏室，多种乐器可用",
       "isActive": true,
       "reviewCount": 0,
-      "createdAt": "2026-06-22T00:02:12.163Z",
-      "updatedAt": "2026-06-22T00:02:12.163Z"
+      "createdAt": "2026-06-22T00:10:40.058Z",
+      "updatedAt": "2026-06-22T00:10:40.058Z"
     },
     {
-      "id": "be4178bc-78d2-4a8a-b4d5-a93d9f823c61",
+      "id": "0c8ce9c5-6a0d-43bc-aa88-58e5fe8150e9",
       "name": "C1 打击乐室",
       "capacity": 3,
       "instruments": [
@@ -86,11 +88,11 @@
       "description": "架子鼓与吉他练习室",
       "isActive": true,
       "reviewCount": 0,
-      "createdAt": "2026-06-22T00:02:12.163Z",
-      "updatedAt": "2026-06-22T00:02:12.163Z"
+      "createdAt": "2026-06-22T00:10:40.058Z",
+      "updatedAt": "2026-06-22T00:10:40.058Z"
     },
     {
-      "id": "2e72348b-f5a3-47de-bbaa-22126b5a10cf",
+      "id": "238ef0f0-21ff-487b-86ff-47e7a43d3074",
       "name": "D1 管弦乐室",
       "capacity": 6,
       "instruments": [
@@ -105,11 +107,44 @@
       "description": "大型合奏室，适合管弦乐排练",
       "isActive": true,
       "reviewCount": 0,
-      "createdAt": "2026-06-22T00:02:12.163Z",
-      "updatedAt": "2026-06-22T00:02:12.163Z"
+      "createdAt": "2026-06-22T00:10:40.058Z",
+      "updatedAt": "2026-06-22T00:10:40.058Z"
     }
   ],
   "bookings": [],
   "unavailableDates": [],
-  "closures": []
+  "closures": [],
+  "coupons": [
+    {
+      "id": "08aff913-eb6c-40b2-840c-58fe694b5446",
+      "code": "WELCOME20",
+      "name": "新客立减20元",
+      "type": "fixed",
+      "value": 20,
+      "minAmount": 50,
+      "validFrom": "2026-06-22",
+      "validUntil": "2027-12-31",
+      "usageLimit": 1000,
+      "usedCount": 0,
+      "isActive": true,
+      "createdAt": "2026-06-22T00:10:40.058Z",
+      "updatedAt": "2026-06-22T00:10:40.058Z"
+    },
+    {
+      "id": "707ea239-f5e2-4429-9138-f07be775d76b",
+      "code": "PIANO10",
+      "name": "钢琴房9折券",
+      "type": "percentage",
+      "value": 10,
+      "minAmount": 0,
+      "maxDiscount": 50,
+      "validFrom": "2026-06-22",
+      "validUntil": "2027-12-31",
+      "usageLimit": 500,
+      "usedCount": 0,
+      "isActive": true,
+      "createdAt": "2026-06-22T00:10:40.058Z",
+      "updatedAt": "2026-06-22T00:10:40.058Z"
+    }
+  ]
 }

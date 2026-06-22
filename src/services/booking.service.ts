@@ -3,6 +3,8 @@ import isBetween from 'dayjs/plugin/isBetween'
 import { dataStore } from '../data/store'
 import { BookingStatus } from '../entities/Booking'
 import { ClosureStatus, ClosureType } from '../entities/TemporaryClosure'
+import { MemberLevel, MemberDiscounts } from '../entities/MemberLevel'
+import { CouponType } from '../entities/Coupon'
 
 dayjs.extend(isBetween)
 
@@ -246,4 +248,179 @@ export function validateTimeRange(
   }
 
   return { valid: true }
+}
+
+export interface FeeCalculation {
+  originalAmount: number
+  memberLevel: MemberLevel
+  memberDiscountRate: number
+  memberDiscountAmount: number
+  afterMemberDiscount: number
+  couponId?: string
+  couponCode?: string
+  couponName?: string
+  couponType?: CouponType
+  couponValue?: number
+  couponDiscountAmount: number
+  totalAmount: number
+}
+
+export function calculateFeeDetail(
+  pricePerHour: number,
+  durationMinutes: number,
+  memberLevel: MemberLevel,
+  couponCode?: string
+): FeeCalculation {
+  const originalAmount = calculatePrice(pricePerHour, durationMinutes)
+  const memberDiscountRate = MemberDiscounts[memberLevel] || 1.0
+  const memberDiscountAmount = Math.round((originalAmount * (1 - memberDiscountRate)) * 100) / 100
+  const afterMemberDiscount = Math.round((originalAmount - memberDiscountAmount) * 100) / 100
+
+  let couponDiscountAmount = 0
+  let couponId: string | undefined
+  let couponName: string | undefined
+  let couponType: CouponType | undefined
+  let couponValue: number | undefined
+
+  if (couponCode) {
+    const today = dayjs().format('YYYY-MM-DD')
+    const coupon = dataStore.coupons.find(
+      c => c.code === couponCode && c.isActive && c.validFrom <= today && c.validUntil >= today && c.usedCount < c.usageLimit
+    )
+
+    if (coupon) {
+      couponId = coupon.id
+      couponName = coupon.name
+      couponType = coupon.type
+      couponValue = coupon.value
+
+      if (afterMemberDiscount >= coupon.minAmount) {
+        if (coupon.type === CouponType.PERCENTAGE) {
+          couponDiscountAmount = Math.round(afterMemberDiscount * (coupon.value / 100) * 100) / 100
+          if (coupon.maxDiscount && couponDiscountAmount > coupon.maxDiscount) {
+            couponDiscountAmount = coupon.maxDiscount
+          }
+        } else if (coupon.type === CouponType.FIXED) {
+          couponDiscountAmount = Math.min(coupon.value, afterMemberDiscount)
+        }
+      }
+    }
+  }
+
+  const totalAmount = Math.max(0, Math.round((afterMemberDiscount - couponDiscountAmount) * 100) / 100)
+
+  return {
+    originalAmount,
+    memberLevel,
+    memberDiscountRate,
+    memberDiscountAmount,
+    afterMemberDiscount,
+    couponId,
+    couponCode,
+    couponName,
+    couponType,
+    couponValue,
+    couponDiscountAmount,
+    totalAmount,
+  }
+}
+
+export interface CalendarDaySlot {
+  startTime: string
+  endTime: string
+  type: 'booked' | 'closure' | 'unavailable'
+  reason: string
+  bookingId?: string
+  orderNo?: string
+  userName?: string
+}
+
+export interface CalendarDay {
+  date: string
+  slots: CalendarDaySlot[]
+}
+
+export function getConflictCalendar(
+  roomId: string,
+  startDate: string,
+  endDate: string
+): CalendarDay[] {
+  const result: CalendarDay[] = []
+  let current = dayjs(startDate)
+  const end = dayjs(endDate)
+
+  while (current.isBefore(end) || current.isSame(end, 'day')) {
+    const dateStr = current.format('YYYY-MM-DD')
+    const slots: CalendarDaySlot[] = []
+
+    const bookings = dataStore.bookings.filter(
+      b => b.roomId === roomId &&
+        b.bookingDate === dateStr &&
+        (b.status === BookingStatus.CONFIRMED || b.status === BookingStatus.CHECKED_IN)
+    )
+
+    for (const booking of bookings) {
+      const user = dataStore.users.find(u => u.id === booking.userId)
+      slots.push({
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        type: 'booked',
+        reason: '已被预约',
+        bookingId: booking.id,
+        orderNo: booking.orderNo,
+        userName: user?.nickname || user?.phone,
+      })
+    }
+
+    const activeClosures = dataStore.closures.filter(
+      c => c.roomId === roomId && c.status === ClosureStatus.ACTIVE
+    )
+
+    for (const closure of activeClosures) {
+      const cStart = dayjs(closure.startDate)
+      const cEnd = dayjs(closure.endDate)
+
+      if (current.isBetween(cStart, cEnd, 'day', '[]')) {
+        if (closure.type === ClosureType.FULL_DAY) {
+          slots.push({
+            startTime: '00:00',
+            endTime: '23:59',
+            type: 'closure',
+            reason: closure.reason || '临时闭店',
+          })
+        } else if (closure.type === ClosureType.PARTIAL && closure.startTime && closure.endTime) {
+          slots.push({
+            startTime: closure.startTime,
+            endTime: closure.endTime,
+            type: 'closure',
+            reason: closure.reason || '临时闭店（部分时段）',
+          })
+        }
+      }
+    }
+
+    const unavailableDates = dataStore.unavailableDates.filter(
+      ud => ud.roomId === roomId && ud.date === dateStr
+    )
+
+    for (const ud of unavailableDates) {
+      slots.push({
+        startTime: ud.startTime || '00:00',
+        endTime: ud.endTime || '23:59',
+        type: 'unavailable',
+        reason: ud.reason || '不可预约',
+      })
+    }
+
+    slots.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
+
+    result.push({
+      date: dateStr,
+      slots,
+    })
+
+    current = current.add(1, 'day')
+  }
+
+  return result
 }

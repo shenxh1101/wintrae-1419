@@ -1,5 +1,6 @@
 import { IsEmail, IsPhoneNumber, IsEnum, IsOptional } from 'class-validator'
 import * as bcrypt from 'bcryptjs'
+import { MemberLevel } from './MemberLevel'
 
 export enum UserRole {
   USER = 'user',
@@ -23,6 +24,8 @@ export class User {
 
   @IsEnum(UserRole)
   role: UserRole
+
+  memberLevel: MemberLevel
 
   isActive: boolean
 

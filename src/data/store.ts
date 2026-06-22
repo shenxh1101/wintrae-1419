@@ -3,6 +3,8 @@ import { PianoRoom, InstrumentType } from '../entities/PianoRoom'
 import { Booking, BookingStatus } from '../entities/Booking'
 import { UnavailableDate } from '../entities/UnavailableDate'
 import { TemporaryClosure, ClosureType, ClosureStatus } from '../entities/TemporaryClosure'
+import { Coupon, CouponType } from '../entities/Coupon'
+import { MemberLevel } from '../entities/MemberLevel'
 import * as bcrypt from 'bcryptjs'
 import { v4 as uuidv4 } from 'uuid'
 import { generateOrderNo, generateVerificationCode } from '../utils/auth'
@@ -17,6 +19,7 @@ interface DataStore {
   bookings: Booking[]
   unavailableDates: UnavailableDate[]
   closures: TemporaryClosure[]
+  coupons: Coupon[]
 }
 
 const store: DataStore = {
@@ -25,6 +28,7 @@ const store: DataStore = {
   bookings: [],
   unavailableDates: [],
   closures: [],
+  coupons: [],
 }
 
 function reviveDates(key: string, value: any): any {
@@ -44,8 +48,12 @@ function loadFromFile(): boolean {
       store.bookings = parsed.bookings || []
       store.unavailableDates = parsed.unavailableDates || []
       store.closures = parsed.closures || []
+      store.coupons = parsed.coupons || []
 
       for (const user of store.users) {
+        if (!user.memberLevel) {
+          user.memberLevel = MemberLevel.NORMAL
+        }
         user.hashPassword = async function () {
           this.password = await bcrypt.hash(this.password, 10)
         }
@@ -54,7 +62,15 @@ function loadFromFile(): boolean {
         }
       }
 
-      console.log(`从数据文件加载: ${store.users.length} 用户, ${store.rooms.length} 琴房, ${store.bookings.length} 预约`)
+      for (const booking of store.bookings) {
+        if (booking.originalAmount === undefined) {
+          booking.originalAmount = booking.totalAmount
+          booking.memberDiscountAmount = 0
+          booking.couponDiscountAmount = 0
+        }
+      }
+
+      console.log(`从数据文件加载: ${store.users.length} 用户, ${store.rooms.length} 琴房, ${store.bookings.length} 预约, ${store.coupons.length} 优惠券`)
       return true
     }
   } catch (error) {
@@ -97,6 +113,7 @@ async function initData() {
       password: hashedAdminPassword,
       nickname: '超级管理员',
       role: UserRole.ADMIN,
+      memberLevel: MemberLevel.NORMAL,
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -115,6 +132,7 @@ async function initData() {
       password: hashedUserPassword,
       nickname: '测试用户',
       role: UserRole.USER,
+      memberLevel: MemberLevel.GOLD,
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -185,13 +203,47 @@ async function initData() {
       })
     }
 
+    const today = new Date().toISOString().slice(0, 10)
+    store.coupons.push({
+      id: uuidv4(),
+      code: 'WELCOME20',
+      name: '新客立减20元',
+      type: CouponType.FIXED,
+      value: 20,
+      minAmount: 50,
+      validFrom: today,
+      validUntil: '2027-12-31',
+      usageLimit: 1000,
+      usedCount: 0,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    store.coupons.push({
+      id: uuidv4(),
+      code: 'PIANO10',
+      name: '钢琴房9折券',
+      type: CouponType.PERCENTAGE,
+      value: 10,
+      minAmount: 0,
+      maxDiscount: 50,
+      validFrom: today,
+      validUntil: '2027-12-31',
+      usageLimit: 500,
+      usedCount: 0,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
     console.log('测试数据初始化完成')
     scheduleSave()
   }
 
   console.log('管理员账号: 13800138000 / admin123')
-  console.log('普通用户账号: 13900139000 / user123')
-  console.log(`已加载 ${store.rooms.length} 个琴房`)
+  console.log('普通用户账号: 13900139000 / user123 (黄金会员)')
+  console.log(`已加载 ${store.rooms.length} 个琴房, ${store.coupons.length} 个优惠券`)
   console.log(`数据文件: ${DATA_FILE}`)
 }
 
@@ -217,6 +269,10 @@ export const dataStore = {
 
   get closures() {
     return store.closures
+  },
+
+  get coupons() {
+    return store.coupons
   },
 
   addUser(user: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'hashPassword' | 'comparePassword'> & { password: string }): User {
@@ -284,6 +340,18 @@ export const dataStore = {
     store.closures.push(newClosure)
     scheduleSave()
     return newClosure
+  },
+
+  addCoupon(coupon: Omit<Coupon, 'id' | 'createdAt' | 'updatedAt'>): Coupon {
+    const newCoupon: Coupon = {
+      ...coupon,
+      id: uuidv4(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    store.coupons.push(newCoupon)
+    scheduleSave()
+    return newCoupon
   },
 
   markUpdated(): void {

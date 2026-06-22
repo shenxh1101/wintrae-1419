@@ -36,9 +36,21 @@ export class Booking {
 
   status: BookingStatus
 
+  originalAmount: number
+
+  memberDiscountAmount: number
+
+  couponDiscountAmount: number
+
   totalAmount: number
 
   paidAmount: number
+
+  memberLevel?: string
+
+  couponId?: string
+
+  couponCode?: string
 
   verificationCode?: string
 
